@@ -9,8 +9,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, AreaChart, Area,
 } from 'recharts';
-
-const CHART_COLORS = ['#2563EB', '#7C3AED', '#0891B2', '#16A34A', '#D97706', '#DC2626', '#DB2777', '#0D9488', '#4F46E5', '#EA580C'];
+import { getPlatformBrand, getPlatformColor } from '../utils/platformConfig';
+import { PlatformIcon } from '../components/PlatformIcon';
 
 const tooltipStyle = {
   contentStyle: { backgroundColor: '#fff', border: '1px solid #E2E8F0', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' },
@@ -134,16 +134,17 @@ export function PlatformAnalysis() {
               onClick={() => setSelectedPlatform(p.platform)}
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.97 }}
-              className="px-5 py-2.5 rounded-full font-medium transition-all duration-200"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-full font-medium transition-all duration-200"
               style={{
-                backgroundColor: isActive ? '#0F1B4C' : '#F1F5F9',
+                backgroundColor: isActive ? getPlatformBrand(p.platform).color : '#F1F5F9',
                 color: isActive ? '#ffffff' : '#475569',
                 fontSize: '14px',
-                border: 'none',
-                boxShadow: isActive ? '0 2px 8px rgba(15,27,76,0.25)' : 'none',
+                border: isActive ? 'none' : `1px solid ${getPlatformBrand(p.platform).borderColor}`,
+                boxShadow: isActive ? `0 2px 8px ${getPlatformBrand(p.platform).color}40` : 'none',
                 cursor: 'pointer',
               }}
             >
+              {!isActive && <PlatformIcon name={p.platform} size={20} />}
               {p.platform}
             </motion.button>
           );
@@ -213,7 +214,7 @@ export function PlatformAnalysis() {
                 />
                 <Bar
                   dataKey="sales"
-                  fill="#2563EB"
+                  fill={getPlatformColor(activePlatform || '')}
                   radius={[6, 6, 0, 0]}
                 />
               </BarChart>
@@ -327,14 +328,14 @@ export function PlatformAnalysis() {
             <Legend
               wrapperStyle={{ color: '#334155', fontSize: '13px', fontWeight: 500 }}
             />
-            {platforms.map((p, idx) => (
+            {platforms.map((p) => (
               <Area
                 key={p.platform}
                 type="monotone"
                 dataKey={p.platform}
                 stackId="1"
-                stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-                fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                stroke={getPlatformColor(p.platform)}
+                fill={getPlatformColor(p.platform)}
                 fillOpacity={0.5}
               />
             ))}

@@ -5,6 +5,8 @@ import { useDataLoader } from '../hooks/useDataLoader';
 import { useAppState } from '../hooks/useAppState';
 import { t } from '../i18n';
 import { formatSales, formatSalesShort, formatPercent, getChangeColor } from '../utils/formatters';
+import { getPlatformBrand, buildPlatformColorMap } from '../utils/platformConfig';
+import { PlatformIcon, PlatformBadge } from '../components/PlatformIcon';
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -47,11 +49,7 @@ export function TitleAnalysis() {
   const platformColorMap = useMemo(() => {
     const allPlatforms = new Set<string>();
     data.titleSummary.forEach(ts => ts.platforms.forEach(p => allPlatforms.add(p.name)));
-    const map: Record<string, string> = {};
-    Array.from(allPlatforms).forEach((name, idx) => {
-      map[name] = CHART_COLORS[idx % CHART_COLORS.length];
-    });
-    return map;
+    return buildPlatformColorMap(allPlatforms);
   }, [data.titleSummary]);
 
   // Growth for every title (last month vs previous month)
@@ -342,16 +340,7 @@ export function TitleAnalysis() {
                     {/* Platform dots */}
                     <div className="flex items-center gap-1">
                       {title.platforms.slice(0, 5).map((p, i) => (
-                        <span
-                          key={i}
-                          className="w-[18px] h-[18px] rounded-full flex items-center justify-center"
-                          style={{ backgroundColor: platformColorMap[p.name] || '#94A3B8' }}
-                          title={p.name}
-                        >
-                          <span style={{ color: '#fff', fontSize: '7px', fontWeight: 700 }}>
-                            {p.name.charAt(0).toUpperCase()}
-                          </span>
-                        </span>
+                        <PlatformIcon key={i} name={p.name} size={20} />
                       ))}
                       {title.platforms.length > 5 && (
                         <span style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 500 }}>
@@ -404,18 +393,7 @@ export function TitleAnalysis() {
                     </h2>
                     <div className="flex flex-wrap items-center gap-2 mt-2">
                       {selectedTitleData.platforms.map((p, i) => (
-                        <span
-                          key={i}
-                          className="px-2.5 py-1 rounded-md font-medium"
-                          style={{
-                            backgroundColor: `${platformColorMap[p.name]}15`,
-                            color: platformColorMap[p.name],
-                            fontSize: '12px',
-                            border: `1px solid ${platformColorMap[p.name]}30`,
-                          }}
-                        >
-                          {p.name}
-                        </span>
+                        <PlatformBadge key={i} name={p.name} />
                       ))}
                     </div>
                   </div>
@@ -446,13 +424,11 @@ export function TitleAnalysis() {
                             style={{
                               backgroundColor: '#ffffff',
                               border: '1px solid #E2E8F0',
+                              borderLeft: `3px solid ${getPlatformBrand(p.name).color}`,
                             }}
                           >
                             <div className="flex items-center gap-2 mb-2">
-                              <span
-                                className="w-3 h-3 rounded-full flex-shrink-0"
-                                style={{ backgroundColor: platformColorMap[p.name] || '#94A3B8' }}
-                              />
+                              <PlatformIcon name={p.name} size={22} />
                               <span className="font-semibold truncate" style={{ color: '#0F1B4C', fontSize: '13px' }}>
                                 {p.name}
                               </span>
@@ -531,18 +507,21 @@ export function TitleAnalysis() {
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-3">
-                      {platformShareData.map((entry, idx) => (
-                        <div key={entry.name} className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: platformColorMap[entry.name] || CHART_COLORS[idx % CHART_COLORS.length] }} />
-                          <span style={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}>
-                            {entry.name}
-                          </span>
-                          <span style={{ color: '#94A3B8', fontSize: '12px' }}>
-                            {entry.percent.toFixed(1)}%
-                          </span>
-                        </div>
-                      ))}
+                      {platformShareData.map((entry) => {
+                        const brand = getPlatformBrand(entry.name);
+                        return (
+                          <div key={entry.name} className="flex items-center gap-1.5">
+                            <span className="w-3 h-3 rounded flex-shrink-0"
+                              style={{ backgroundColor: brand.color }} />
+                            <span style={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}>
+                              {entry.name}
+                            </span>
+                            <span style={{ color: '#94A3B8', fontSize: '12px' }}>
+                              {entry.percent.toFixed(1)}%
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 

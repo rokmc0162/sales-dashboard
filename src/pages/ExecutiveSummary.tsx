@@ -21,15 +21,12 @@ import { formatSales, formatMonth } from '../utils/formatters';
 import { calcMoMChange } from '../utils/calculations';
 import { KPICard } from '../components/charts/KPICard';
 import { DollarSign, CalendarDays, TrendingUp, BookOpen } from 'lucide-react';
+import { getPlatformColor } from '../utils/platformConfig';
 
 // ---------------------------------------------------------------------------
 // Design Tokens - Premium White Theme with Navy Accents
 // ---------------------------------------------------------------------------
 
-const CHART_COLORS = [
-  '#2563EB', '#7C3AED', '#0891B2', '#16A34A', '#D97706',
-  '#DC2626', '#DB2777', '#0D9488', '#4F46E5', '#EA580C',
-];
 
 const tooltipStyle = {
   contentStyle: {
@@ -512,10 +509,10 @@ export function ExecutiveSummary() {
                     nameKey="platform"
                     paddingAngle={3}
                   >
-                    {platformChartData.map((_, index) => (
+                    {platformChartData.map((entry, index) => (
                       <Cell
                         key={`cell-${index}`}
-                        fill={CHART_COLORS[index % CHART_COLORS.length]}
+                        fill={getPlatformColor(entry.platform)}
                         stroke="#ffffff"
                         strokeWidth={2}
                       />
@@ -525,9 +522,9 @@ export function ExecutiveSummary() {
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-3 px-2">
-                {platformChartData.map((entry, index) => (
+                {platformChartData.map((entry) => (
                   <div key={entry.platform} className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }} />
+                    <span className="w-3 h-3 rounded flex-shrink-0" style={{ backgroundColor: getPlatformColor(entry.platform) }} />
                     <span style={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}>
                       {entry.platform}
                     </span>
