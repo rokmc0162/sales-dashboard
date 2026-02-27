@@ -5,6 +5,7 @@ import { useAppState } from '../hooks/useAppState';
 import { t } from '../i18n';
 import { formatSales } from '../utils/formatters';
 import { filterByDateRange } from '../utils/calculations';
+import { PlatformBadge } from '../components/PlatformIcon';
 
 const PAGE_SIZE = 50;
 
@@ -401,16 +402,7 @@ export function RawData() {
                       {language === 'ko' ? row.titleKR : row.titleJP}
                     </td>
                     <td className="py-3 px-5">
-                      <span
-                        className="inline-block px-2.5 py-1 rounded-lg font-semibold"
-                        style={{
-                          backgroundColor: '#EFF6FF',
-                          color: '#2563EB',
-                          fontSize: '12px',
-                        }}
-                      >
-                        {row.channel}
-                      </span>
+                      <PlatformBadge name={row.channel} compact />
                     </td>
                     <td className="py-3 px-5 text-right font-bold" style={{ color: '#0F172A', fontSize: '15px' }}>
                       {formatSales(row.sales, currency, exchangeRate, language)}

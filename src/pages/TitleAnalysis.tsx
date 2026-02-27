@@ -520,12 +520,9 @@ export function TitleAnalysis() {
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-3">
-                      {platformShareData.map((entry) => {
-                        const brand = getPlatformBrand(entry.name);
-                        return (
+                      {platformShareData.map((entry) => (
                           <div key={entry.name} className="flex items-center gap-1.5">
-                            <span className="w-3 h-3 rounded flex-shrink-0"
-                              style={{ backgroundColor: brand.color }} />
+                            <PlatformIcon name={entry.name} size={18} />
                             <span style={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}>
                               {entry.name}
                             </span>
@@ -533,8 +530,7 @@ export function TitleAnalysis() {
                               {entry.percent.toFixed(1)}%
                             </span>
                           </div>
-                        );
-                      })}
+                      ))}
                     </div>
                   </div>
 
@@ -620,7 +616,7 @@ export function TitleAnalysis() {
                           name,
                         ]}
                       />
-                      <Legend wrapperStyle={{ fontSize: '13px', color: '#475569' }} />
+                      <Legend content={() => null} />
                       {weeklyPlatformTrend.platforms.map((platform, idx) => (
                         <Line
                           key={platform}
@@ -634,6 +630,14 @@ export function TitleAnalysis() {
                       ))}
                     </LineChart>
                   </ResponsiveContainer>
+                  <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-2 px-2">
+                    {weeklyPlatformTrend.platforms.map((platform) => (
+                      <div key={platform} className="flex items-center gap-1.5">
+                        <PlatformIcon name={platform} size={16} />
+                        <span style={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}>{platform}</span>
+                      </div>
+                    ))}
+                  </div>
                 </motion.div>
               </motion.div>
             </AnimatePresence>

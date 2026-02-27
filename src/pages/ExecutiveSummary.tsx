@@ -22,6 +22,7 @@ import { calcMoMChange } from '../utils/calculations';
 import { KPICard } from '../components/charts/KPICard';
 import { DollarSign, CalendarDays, TrendingUp, BookOpen } from 'lucide-react';
 import { getPlatformColor } from '../utils/platformConfig';
+import { PlatformIcon } from '../components/PlatformIcon';
 
 // ---------------------------------------------------------------------------
 // Design Tokens - Premium White Theme with Navy Accents
@@ -524,7 +525,7 @@ export function ExecutiveSummary() {
               <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-3 px-2">
                 {platformChartData.map((entry) => (
                   <div key={entry.platform} className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded flex-shrink-0" style={{ backgroundColor: getPlatformColor(entry.platform) }} />
+                    <PlatformIcon name={entry.platform} size={18} />
                     <span style={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}>
                       {entry.platform}
                     </span>

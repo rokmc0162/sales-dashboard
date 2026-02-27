@@ -325,9 +325,7 @@ export function PlatformAnalysis() {
                 name,
               ]}
             />
-            <Legend
-              wrapperStyle={{ color: '#334155', fontSize: '13px', fontWeight: 500 }}
-            />
+            <Legend content={() => null} />
             {platforms.map((p) => (
               <Area
                 key={p.platform}
@@ -341,6 +339,14 @@ export function PlatformAnalysis() {
             ))}
           </AreaChart>
         </ResponsiveContainer>
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-2 px-2">
+          {platforms.map((p) => (
+            <div key={p.platform} className="flex items-center gap-1.5">
+              <PlatformIcon name={p.platform} size={16} />
+              <span style={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}>{p.platform}</span>
+            </div>
+          ))}
+        </div>
       </motion.div>
     </motion.div>
   );
