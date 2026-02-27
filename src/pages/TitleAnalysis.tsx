@@ -338,14 +338,27 @@ export function TitleAnalysis() {
 
                   <div className="flex items-center justify-between">
                     {/* Platform dots */}
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       {title.platforms.slice(0, 5).map((p, i) => (
-                        <PlatformIcon key={i} name={p.name} size={20} />
+                        <PlatformIcon key={i} name={p.name} size={22} />
                       ))}
                       {title.platforms.length > 5 && (
-                        <span style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 500 }}>
+                        <div
+                          className="flex items-center justify-center flex-shrink-0"
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: 5,
+                            backgroundColor: '#E2E8F0',
+                            color: '#64748B',
+                            fontSize: 9,
+                            fontWeight: 700,
+                            lineHeight: 1,
+                          }}
+                          title={title.platforms.slice(5).map(p => p.name).join(', ')}
+                        >
                           +{title.platforms.length - 5}
-                        </span>
+                        </div>
                       )}
                     </div>
 
