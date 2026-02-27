@@ -1,0 +1,64 @@
+{
+  "app": { "title": "RVJP 売上ダッシュボード" },
+  "nav": {
+    "summary": "経営サマリー",
+    "titles": "作品別分析",
+    "platforms": "プラットフォーム別分析",
+    "period": "期間別分析",
+    "trends": "トレンド",
+    "rawData": "データ"
+  },
+  "kpi": {
+    "totalSales": "累計売上",
+    "currentMonth": "今月売上",
+    "momChange": "前月比",
+    "activeTitles": "アクティブ作品数"
+  },
+  "chart": {
+    "monthlySales": "月別売上推移",
+    "platformShare": "PF別売上構成",
+    "topTitles": "TOP売上作品",
+    "dailySales": "日別売上",
+    "platformComparison": "PF比較",
+    "platformShareTrend": "PFシェア推移",
+    "growthTop": "成長率TOP",
+    "declineAlert": "下落警告",
+    "weekdayPattern": "曜日別パターン",
+    "newTitles": "新規作品実績"
+  },
+  "filter": {
+    "dateRange": "期間",
+    "platform": "プラットフォーム",
+    "title": "作品",
+    "search": "検索...",
+    "allPlatforms": "全プラットフォーム",
+    "last7d": "過去7日",
+    "last30d": "過去30日",
+    "last90d": "過去四半期",
+    "all": "全期間"
+  },
+  "table": {
+    "rank": "順位",
+    "title": "作品名",
+    "platform": "PF",
+    "sales": "売上",
+    "change": "増減",
+    "date": "日付",
+    "download": "CSVダウンロード",
+    "showing": "表示中",
+    "of": "/ 全体"
+  },
+  "currency": { "jpy": "円 (JPY)", "krw": "ウォン (KRW)" },
+  "unit": { "oku": "億", "man": "万" },
+  "period": {
+    "daily": "日別",
+    "weekly": "週別",
+    "monthly": "月別",
+    "vsPrevious": "前期間比"
+  },
+  "trend": {
+    "growth": "成長",
+    "decline": "下落",
+    "new": "新規"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "app": { "title": "RVJP 매출 대시보드" },
+  "nav": {
+    "summary": "경영 요약",
+    "titles": "작품별 분석",
+    "platforms": "플랫폼별 분석",
+    "period": "기간별 분석",
+    "trends": "트렌드",
+    "rawData": "데이터"
+  },
+  "kpi": {
+    "totalSales": "총 누적매출",
+    "currentMonth": "이번 달 매출",
+    "momChange": "전월 대비",
+    "activeTitles": "활성 작품 수"
+  },
+  "chart": {
+    "monthlySales": "월별 매출 추이",
+    "platformShare": "플랫폼별 매출 비중",
+    "topTitles": "TOP 매출 작품",
+    "dailySales": "일별 매출",
+    "platformComparison": "플랫폼 비교",
+    "platformShareTrend": "플랫폼 점유율 추이",
+    "growthTop": "성장률 TOP",
+    "declineAlert": "하락 경고",
+    "weekdayPattern": "요일별 패턴",
+    "newTitles": "신규 작품 성과"
+  },
+  "filter": {
+    "dateRange": "기간",
+    "platform": "플랫폼",
+    "title": "작품",
+    "search": "검색...",
+    "allPlatforms": "전체 플랫폼",
+    "last7d": "최근 7일",
+    "last30d": "최근 30일",
+    "last90d": "최근 분기",
+    "all": "전체"
+  },
+  "table": {
+    "rank": "순위",
+    "title": "작품명",
+    "platform": "플랫폼",
+    "sales": "매출",
+    "change": "증감",
+    "date": "날짜",
+    "download": "CSV 다운로드",
+    "showing": "표시 중",
+    "of": "/ 전체"
+  },
+  "currency": { "jpy": "엔 (JPY)", "krw": "원 (KRW)" },
+  "unit": { "oku": "억", "man": "만" },
+  "period": {
+    "daily": "일별",
+    "weekly": "주별",
+    "monthly": "월별",
+    "vsPrevious": "이전 기간 대비"
+  },
+  "trend": {
+    "growth": "성장",
+    "decline": "하락",
+    "new": "신규"
+  }
+}
