@@ -1,14 +1,13 @@
 import { useState, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { Search } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, TrendingUp, TrendingDown, Minus, BarChart3 } from 'lucide-react';
 import { useDataLoader } from '../hooks/useDataLoader';
 import { useAppState } from '../hooks/useAppState';
 import { t } from '../i18n';
-import { formatSales, formatSalesShort, formatDate } from '../utils/formatters';
-import { KPICard } from '../components/charts/KPICard';
+import { formatSales, formatSalesShort, formatPercent, getChangeColor } from '../utils/formatters';
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 
 const CHART_COLORS = ['#2563EB', '#7C3AED', '#0891B2', '#16A34A', '#D97706', '#DC2626', '#DB2777', '#0D9488', '#4F46E5', '#EA580C'];
@@ -21,10 +20,7 @@ const tooltipStyle = {
 
 const staggerContainer = {
   hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.1 },
-  },
+  visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
 };
 
 const staggerItem = {
@@ -32,8 +28,12 @@ const staggerItem = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
 };
 
-type SortKey = 'totalSales' | 'dailyAvg' | 'peakSales' | 'platformCount';
-type SortDir = 'asc' | 'desc';
+const detailReveal = {
+  hidden: { opacity: 0, x: 20 },
+  visible: { opacity: 1, x: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
+};
+
+type SortKey = 'sales' | 'platforms' | 'name';
 
 export function TitleAnalysis() {
   const { language, currency, exchangeRate } = useAppState();
@@ -41,125 +41,179 @@ export function TitleAnalysis() {
 
   const [search, setSearch] = useState('');
   const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('totalSales');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [sortKey, setSortKey] = useState<SortKey>('sales');
 
-  // Filter titles by search query
+  // Build platform → color map (consistent across the page)
+  const platformColorMap = useMemo(() => {
+    const allPlatforms = new Set<string>();
+    data.titleSummary.forEach(ts => ts.platforms.forEach(p => allPlatforms.add(p.name)));
+    const map: Record<string, string> = {};
+    Array.from(allPlatforms).forEach((name, idx) => {
+      map[name] = CHART_COLORS[idx % CHART_COLORS.length];
+    });
+    return map;
+  }, [data.titleSummary]);
+
+  // Growth for every title (last month vs previous month)
+  const titleGrowths = useMemo(() => {
+    const map: Record<string, number> = {};
+    data.titleSummary.forEach(ts => {
+      const trend = [...ts.monthlyTrend].sort((a, b) => a.month.localeCompare(b.month));
+      if (trend.length < 2) { map[ts.titleKR] = 0; return; }
+      const last = trend[trend.length - 1].sales;
+      const prev = trend[trend.length - 2].sales;
+      map[ts.titleKR] = prev > 0 ? ((last - prev) / prev) * 100 : 0;
+    });
+    return map;
+  }, [data.titleSummary]);
+
+  // Filter by search
   const filteredTitles = useMemo(() => {
     if (!search.trim()) return data.titleSummary;
     const q = search.toLowerCase();
     return data.titleSummary.filter(
-      (ts) =>
-        ts.titleKR.toLowerCase().includes(q) ||
-        ts.titleJP.toLowerCase().includes(q)
+      ts => ts.titleKR.toLowerCase().includes(q) || ts.titleJP.toLowerCase().includes(q),
     );
   }, [data.titleSummary, search]);
 
-  // Sort filtered titles
+  // Sort
   const sortedTitles = useMemo(() => {
-    const sorted = [...filteredTitles].sort((a, b) => {
-      let aVal: number;
-      let bVal: number;
-      switch (sortKey) {
-        case 'totalSales':
-          aVal = a.totalSales;
-          bVal = b.totalSales;
-          break;
-        case 'dailyAvg':
-          aVal = a.dailyAvg;
-          bVal = b.dailyAvg;
-          break;
-        case 'peakSales':
-          aVal = a.peakSales;
-          bVal = b.peakSales;
-          break;
-        case 'platformCount':
-          aVal = a.platforms.length;
-          bVal = b.platforms.length;
-          break;
-        default:
-          aVal = a.totalSales;
-          bVal = b.totalSales;
-      }
-      return sortDir === 'desc' ? bVal - aVal : aVal - bVal;
-    });
-    return sorted;
-  }, [filteredTitles, sortKey, sortDir]);
+    const arr = [...filteredTitles];
+    switch (sortKey) {
+      case 'sales':
+        return arr.sort((a, b) => b.totalSales - a.totalSales);
+      case 'platforms':
+        return arr.sort((a, b) => b.platforms.length - a.platforms.length || b.totalSales - a.totalSales);
+      case 'name':
+        return arr.sort((a, b) => {
+          const nameA = language === 'ko' ? a.titleKR : a.titleJP;
+          const nameB = language === 'ko' ? b.titleKR : b.titleJP;
+          return nameA.localeCompare(nameB);
+        });
+      default:
+        return arr;
+    }
+  }, [filteredTitles, sortKey, language]);
+
+  // Auto-select first title when none selected
+  const activeTitleKey = selectedTitle ?? (sortedTitles.length > 0 ? sortedTitles[0].titleKR : null);
 
   // Selected title data
   const selectedTitleData = useMemo(() => {
-    if (!selectedTitle) return null;
-    return data.titleSummary.find((ts) => ts.titleKR === selectedTitle) ?? null;
-  }, [data.titleSummary, selectedTitle]);
+    if (!activeTitleKey) return null;
+    return data.titleSummary.find(ts => ts.titleKR === activeTitleKey) ?? null;
+  }, [data.titleSummary, activeTitleKey]);
 
-  // Daily sales for selected title
-  const selectedDailySales = useMemo(() => {
-    if (!selectedTitle) return [];
-    return data.dailySales
-      .filter((ds) => ds.titleKR === selectedTitle)
-      .reduce<{ date: string; sales: number }[]>((acc, ds) => {
-        const existing = acc.find((a) => a.date === ds.date);
-        if (existing) {
-          existing.sales += ds.sales;
-        } else {
-          acc.push({ date: ds.date, sales: ds.sales });
-        }
-        return acc;
-      }, [])
-      .sort((a, b) => a.date.localeCompare(b.date));
-  }, [data.dailySales, selectedTitle]);
-
-  // Platform breakdown for selected title
-  const selectedPlatformData = useMemo(() => {
+  // Donut chart: platform sales share
+  const platformShareData = useMemo(() => {
     if (!selectedTitleData) return [];
-    return selectedTitleData.platforms.map((p) => ({
-      name: p.name,
-      sales: p.sales,
-    }));
+    const total = selectedTitleData.platforms.reduce((s, p) => s + p.sales, 0);
+    return selectedTitleData.platforms
+      .map(p => ({ name: p.name, sales: p.sales, percent: total > 0 ? (p.sales / total) * 100 : 0 }))
+      .sort((a, b) => b.sales - a.sales);
   }, [selectedTitleData]);
 
-  function handleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
-    } else {
-      setSortKey(key);
-      setSortDir('desc');
-    }
-  }
+  // Monthly trend bar chart data
+  const monthlyTrendData = useMemo(() => {
+    if (!selectedTitleData) return [];
+    return [...selectedTitleData.monthlyTrend]
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map(m => ({
+        month: m.month,
+        label: `${parseInt(m.month.split('-')[1])}${language === 'ko' ? '월' : '月'}`,
+        sales: m.sales,
+      }));
+  }, [selectedTitleData, language]);
 
-  function sortIndicator(key: SortKey) {
-    if (sortKey !== key) return <span style={{ color: '#94A3B8' }}> ↕</span>;
-    return <span style={{ color: '#2563EB' }}>{sortDir === 'desc' ? ' ↓' : ' ↑'}</span>;
-  }
+  // Weekly platform trend (multi-line chart)
+  const weeklyPlatformTrend = useMemo(() => {
+    if (!activeTitleKey) return { data: [] as Record<string, string | number>[], platforms: [] as string[] };
 
+    const titleSales = data.dailySales.filter(d => d.titleKR === activeTitleKey);
+
+    const platformSet = new Set<string>();
+    titleSales.forEach(d => platformSet.add(d.channel));
+    const platforms = Array.from(platformSet);
+
+    // Group by week + channel
+    const weekMap = new Map<string, Record<string, number>>();
+    titleSales.forEach(d => {
+      const date = new Date(d.date);
+      const weekStart = new Date(date);
+      weekStart.setDate(date.getDate() - date.getDay());
+      const weekKey = weekStart.toISOString().substring(0, 10);
+
+      if (!weekMap.has(weekKey)) weekMap.set(weekKey, {});
+      const entry = weekMap.get(weekKey)!;
+      entry[d.channel] = (entry[d.channel] || 0) + d.sales;
+    });
+
+    const weeks = Array.from(weekMap.keys()).sort();
+    const chartData = weeks.map(week => {
+      const ws = new Date(week);
+      const we = new Date(ws);
+      we.setDate(ws.getDate() + 6);
+      const label = `${ws.getMonth() + 1}/${ws.getDate()}-${we.getMonth() + 1}/${we.getDate()}`;
+
+      const row: Record<string, string | number> = { week, label };
+      const entry = weekMap.get(week)!;
+      platforms.forEach(p => { row[p] = entry[p] || 0; });
+      return row;
+    });
+
+    return { data: chartData, platforms };
+  }, [data.dailySales, activeTitleKey]);
+
+  // Per-platform growth for selected title
+  const platformGrowths = useMemo(() => {
+    if (!activeTitleKey || !selectedTitleData) return new Map<string, number>();
+
+    const titleSales = data.dailySales.filter(d => d.titleKR === activeTitleKey);
+    const map = new Map<string, number>();
+
+    selectedTitleData.platforms.forEach(p => {
+      const platformSales = titleSales.filter(d => d.channel === p.name);
+      const monthMap = new Map<string, number>();
+      platformSales.forEach(d => {
+        const month = d.date.substring(0, 7);
+        monthMap.set(month, (monthMap.get(month) || 0) + d.sales);
+      });
+
+      const months = Array.from(monthMap.keys()).sort();
+      if (months.length < 2) { map.set(p.name, 0); return; }
+      const last = monthMap.get(months[months.length - 1]) || 0;
+      const prev = monthMap.get(months[months.length - 2]) || 0;
+      map.set(p.name, prev > 0 ? ((last - prev) / prev) * 100 : 0);
+    });
+
+    return map;
+  }, [data.dailySales, activeTitleKey, selectedTitleData]);
+
+  const titleName = (ts: { titleKR: string; titleJP: string }) =>
+    language === 'ko' ? ts.titleKR : ts.titleJP;
+
+  // ---------------------------------------------------------------------------
+  // Loading
+  // ---------------------------------------------------------------------------
   if (data.loading) {
     return (
-      <div style={{ backgroundColor: '#F8FAFC', minHeight: '100vh' }}>
-        <h1 className="text-2xl font-bold mb-6" style={{ color: '#0F1B4C', fontSize: '28px' }}>
-          {t(language, 'nav.titles')}
-        </h1>
-        <div
-          className="rounded-xl p-8 flex items-center justify-center"
-          style={{ backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', minHeight: '400px' }}
-        >
-          <div className="flex flex-col items-center gap-3">
-            <div
-              className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"
-              style={{ borderColor: '#2563EB', borderTopColor: 'transparent' }}
-            />
-            <p style={{ color: '#64748B', fontSize: '15px' }}>Loading...</p>
-          </div>
-        </div>
+      <div className="flex items-center justify-center" style={{ minHeight: '400px' }}>
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2" style={{ borderColor: '#2563EB' }} />
       </div>
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+  const sortOptions: { key: SortKey; label: string }[] = [
+    { key: 'sales', label: language === 'ko' ? '매출순' : '売上順' },
+    { key: 'platforms', label: language === 'ko' ? '플랫폼수' : 'PF数' },
+    { key: 'name', label: language === 'ko' ? '가나다순' : '名前順' },
+  ];
+
   return (
-    <motion.div
-      initial="hidden"
-      animate="visible"
-      variants={staggerContainer}
-    >
+    <motion.div initial="hidden" animate="visible" variants={staggerContainer}>
       {/* Page Title */}
       <motion.h1
         variants={staggerItem}
@@ -169,259 +223,440 @@ export function TitleAnalysis() {
         {t(language, 'nav.titles')}
       </motion.h1>
 
-      {/* Search Input */}
-      <motion.div variants={staggerItem} className="mb-6 relative">
-        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-          <Search size={20} color="#94A3B8" />
-        </div>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={t(language, 'filter.search')}
-          className="w-full rounded-xl py-3.5 pl-12 pr-4 outline-none transition-all duration-200"
+      <div className="flex gap-6" style={{ height: 'calc(100vh - 160px)' }}>
+        {/* ================================================================ */}
+        {/* LEFT PANEL — Title List                                          */}
+        {/* ================================================================ */}
+        <motion.div
+          variants={staggerItem}
+          className="flex-shrink-0 flex flex-col rounded-2xl overflow-hidden"
           style={{
+            width: '320px',
             backgroundColor: '#ffffff',
             border: '1px solid #E2E8F0',
-            color: '#0F172A',
-            fontSize: '16px',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+            boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
           }}
-          onFocus={(e) => {
-            e.currentTarget.style.borderColor = '#2563EB';
-            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.12)';
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.borderColor = '#E2E8F0';
-            e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)';
-          }}
-        />
-      </motion.div>
+        >
+          {/* Header + Search + Sort */}
+          <div className="px-4 pt-5 pb-3">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <BarChart3 size={18} color="#0F1B4C" />
+                <h2 className="font-bold" style={{ color: '#0F1B4C', fontSize: '15px' }}>
+                  {language === 'ko' ? '작품 목록' : '作品一覧'}
+                </h2>
+              </div>
+              <span
+                className="px-2.5 py-0.5 rounded-full font-semibold"
+                style={{ backgroundColor: '#F1F5F9', color: '#64748B', fontSize: '12px' }}
+              >
+                {filteredTitles.length}{language === 'ko' ? '개' : '件'}
+              </span>
+            </div>
 
-      {/* Title Ranking Table */}
-      <motion.div
-        variants={staggerItem}
-        className="rounded-xl p-6 mb-6 overflow-hidden"
-        style={{ backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
-      >
-        <h2 className="font-semibold mb-4" style={{ color: '#0F1B4C', fontSize: '18px' }}>
-          {t(language, 'chart.topTitles')}
-          <span className="ml-2 font-normal" style={{ color: '#64748B', fontSize: '14px' }}>
-            ({sortedTitles.length})
-          </span>
-        </h2>
+            {/* Search */}
+            <div className="relative mb-3">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search size={15} color="#94A3B8" />
+              </div>
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder={language === 'ko' ? '작품명 검색...' : '作品名検索...'}
+                className="w-full rounded-lg py-2.5 pl-9 pr-3 outline-none transition-all"
+                style={{
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  color: '#0F172A',
+                  fontSize: '13px',
+                }}
+                onFocus={e => { e.currentTarget.style.borderColor = '#2563EB'; }}
+                onBlur={e => { e.currentTarget.style.borderColor = '#E2E8F0'; }}
+              />
+            </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full" style={{ fontSize: '14px' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#F1F5F9' }}>
-                <th className="text-left p-3.5 font-semibold rounded-tl-lg" style={{ color: '#475569' }}>
-                  {t(language, 'table.rank')}
-                </th>
-                <th className="text-left p-3.5 font-semibold" style={{ color: '#475569' }}>
-                  {t(language, 'table.title')}
-                </th>
-                <th
-                  className="text-right p-3.5 font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity"
-                  style={{ color: '#475569' }}
-                  onClick={() => handleSort('totalSales')}
+            {/* Sort tabs */}
+            <div className="flex gap-1.5">
+              {sortOptions.map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => setSortKey(opt.key)}
+                  className="px-3 py-1.5 rounded-md font-medium transition-all"
+                  style={{
+                    backgroundColor: sortKey === opt.key ? '#0F1B4C' : '#F1F5F9',
+                    color: sortKey === opt.key ? '#ffffff' : '#64748B',
+                    fontSize: '11px',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
                 >
-                  {t(language, 'kpi.totalSales')}{sortIndicator('totalSales')}
-                </th>
-                <th
-                  className="text-right p-3.5 font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity"
-                  style={{ color: '#475569' }}
-                  onClick={() => handleSort('dailyAvg')}
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Scrollable list */}
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
+            {sortedTitles.map(title => {
+              const isSelected = activeTitleKey === title.titleKR;
+              const growth = titleGrowths[title.titleKR] || 0;
+
+              return (
+                <div
+                  key={title.titleKR}
+                  onClick={() => setSelectedTitle(title.titleKR)}
+                  className="px-3 py-3 rounded-xl mb-1 cursor-pointer transition-all duration-150"
+                  style={{
+                    backgroundColor: isSelected ? '#EFF6FF' : 'transparent',
+                    border: isSelected ? '1px solid #BFDBFE' : '1px solid transparent',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isSelected) e.currentTarget.style.backgroundColor = '#F8FAFC';
+                  }}
+                  onMouseLeave={e => {
+                    if (!isSelected) e.currentTarget.style.backgroundColor = isSelected ? '#EFF6FF' : 'transparent';
+                  }}
                 >
-                  {language === 'ko' ? '일평균' : '日平均'}{sortIndicator('dailyAvg')}
-                </th>
-                <th
-                  className="text-right p-3.5 font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity"
-                  style={{ color: '#475569' }}
-                  onClick={() => handleSort('peakSales')}
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <span
+                      className="font-semibold leading-tight"
+                      style={{
+                        color: isSelected ? '#2563EB' : '#0F172A',
+                        fontSize: '13px',
+                        maxWidth: '180px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        display: 'block',
+                      }}
+                    >
+                      {titleName(title)}
+                    </span>
+                    <span className="font-bold flex-shrink-0" style={{ color: '#0F172A', fontSize: '13px' }}>
+                      {formatSales(title.totalSales, currency, exchangeRate, language)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    {/* Platform dots */}
+                    <div className="flex items-center gap-1">
+                      {title.platforms.slice(0, 5).map((p, i) => (
+                        <span
+                          key={i}
+                          className="w-[18px] h-[18px] rounded-full flex items-center justify-center"
+                          style={{ backgroundColor: platformColorMap[p.name] || '#94A3B8' }}
+                          title={p.name}
+                        >
+                          <span style={{ color: '#fff', fontSize: '7px', fontWeight: 700 }}>
+                            {p.name.charAt(0).toUpperCase()}
+                          </span>
+                        </span>
+                      ))}
+                      {title.platforms.length > 5 && (
+                        <span style={{ color: '#94A3B8', fontSize: '10px', fontWeight: 500 }}>
+                          +{title.platforms.length - 5}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Growth + platform count */}
+                    <div className="flex items-center gap-1.5">
+                      {growth > 5 ? (
+                        <TrendingUp size={13} color="#16A34A" />
+                      ) : growth < -5 ? (
+                        <TrendingDown size={13} color="#DC2626" />
+                      ) : (
+                        <Minus size={13} color="#94A3B8" />
+                      )}
+                      <span style={{ color: '#94A3B8', fontSize: '11px', fontWeight: 500 }}>
+                        {title.platforms.length}{language === 'ko' ? '개 플랫폼' : 'PF'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+
+        {/* ================================================================ */}
+        {/* RIGHT PANEL — Detail View                                        */}
+        {/* ================================================================ */}
+        <div className="flex-1 overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
+          {selectedTitleData ? (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTitleKey}
+                initial="hidden"
+                animate="visible"
+                variants={staggerContainer}
+                className="space-y-6 pb-8"
+              >
+                {/* Header: Title Name + Cumulative Sales */}
+                <motion.div
+                  variants={detailReveal}
+                  className="flex items-start justify-between flex-wrap gap-4"
                 >
-                  {language === 'ko' ? '최고 매출' : 'ピーク売上'}{sortIndicator('peakSales')}
-                </th>
-                <th
-                  className="text-right p-3.5 font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity rounded-tr-lg"
-                  style={{ color: '#475569' }}
-                  onClick={() => handleSort('platformCount')}
-                >
-                  {t(language, 'table.platform')}{sortIndicator('platformCount')}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTitles.map((title, idx) => {
-                const isSelected = selectedTitle === title.titleKR;
-                return (
-                  <tr
-                    key={title.titleKR}
-                    onClick={() =>
-                      setSelectedTitle(isSelected ? null : title.titleKR)
-                    }
-                    className="cursor-pointer transition-all duration-150"
+                  <div className="min-w-0">
+                    <h2 className="font-bold" style={{ color: '#0F1B4C', fontSize: '24px' }}>
+                      {titleName(selectedTitleData)}
+                    </h2>
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      {selectedTitleData.platforms.map((p, i) => (
+                        <span
+                          key={i}
+                          className="px-2.5 py-1 rounded-md font-medium"
+                          style={{
+                            backgroundColor: `${platformColorMap[p.name]}15`,
+                            color: platformColorMap[p.name],
+                            fontSize: '12px',
+                            border: `1px solid ${platformColorMap[p.name]}30`,
+                          }}
+                        >
+                          {p.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p style={{ color: '#64748B', fontSize: '13px', fontWeight: 500 }}>
+                      {language === 'ko' ? '누적 매출' : '累計売上'}
+                    </p>
+                    <p className="font-extrabold" style={{ color: '#0F1B4C', fontSize: '32px', lineHeight: 1.2 }}>
+                      {formatSales(selectedTitleData.totalSales, currency, exchangeRate, language)}
+                    </p>
+                  </div>
+                </motion.div>
+
+                {/* Platform Cards Grid */}
+                <motion.div variants={detailReveal}>
+                  <h3 className="font-bold mb-3" style={{ color: '#0F1B4C', fontSize: '16px' }}>
+                    {language === 'ko' ? '서비스 플랫폼' : 'サービスプラットフォーム'}
+                  </h3>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {selectedTitleData.platforms
+                      .sort((a, b) => b.sales - a.sales)
+                      .map((p, i) => {
+                        const growth = platformGrowths.get(p.name) || 0;
+                        return (
+                          <div
+                            key={i}
+                            className="rounded-xl p-4 transition-shadow duration-200 hover:shadow-md"
+                            style={{
+                              backgroundColor: '#ffffff',
+                              border: '1px solid #E2E8F0',
+                            }}
+                          >
+                            <div className="flex items-center gap-2 mb-2">
+                              <span
+                                className="w-3 h-3 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: platformColorMap[p.name] || '#94A3B8' }}
+                              />
+                              <span className="font-semibold truncate" style={{ color: '#0F1B4C', fontSize: '13px' }}>
+                                {p.name}
+                              </span>
+                            </div>
+                            <p className="font-bold mb-1" style={{ color: '#0F172A', fontSize: '16px' }}>
+                              {formatSales(p.sales, currency, exchangeRate, language)}
+                            </p>
+                            <div className="flex items-center gap-1">
+                              {growth > 0 ? (
+                                <TrendingUp size={12} color="#16A34A" />
+                              ) : growth < 0 ? (
+                                <TrendingDown size={12} color="#DC2626" />
+                              ) : (
+                                <Minus size={12} color="#94A3B8" />
+                              )}
+                              <span
+                                className="font-medium"
+                                style={{ color: getChangeColor(growth), fontSize: '12px' }}
+                              >
+                                {formatPercent(growth)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </motion.div>
+
+                {/* Two charts side by side: Donut + Monthly Bar */}
+                <motion.div variants={detailReveal} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Donut: Platform Sales Share */}
+                  <div
+                    className="rounded-2xl p-6"
                     style={{
-                      backgroundColor: isSelected
-                        ? '#EFF6FF'
-                        : idx % 2 === 1 ? '#F8FAFC' : '#ffffff',
-                      borderBottom: '1px solid #F1F5F9',
-                      borderLeft: isSelected ? '3px solid #2563EB' : '3px solid transparent',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isSelected) e.currentTarget.style.backgroundColor = '#F8FAFC';
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSelected) e.currentTarget.style.backgroundColor = idx % 2 === 1 ? '#F8FAFC' : '#ffffff';
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #E2E8F0',
+                      boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
                     }}
                   >
-                    <td className="p-3.5 font-mono" style={{ color: '#94A3B8', fontSize: '14px' }}>
-                      {idx + 1}
-                    </td>
-                    <td className="p-3.5 font-semibold" style={{ color: isSelected ? '#2563EB' : '#0F172A', fontSize: '15px' }}>
-                      {language === 'ko' ? title.titleKR : title.titleJP}
-                    </td>
-                    <td className="p-3.5 text-right font-mono" style={{ color: '#0F172A', fontSize: '14px', fontWeight: 600 }}>
-                      {formatSales(title.totalSales, currency, exchangeRate, language)}
-                    </td>
-                    <td className="p-3.5 text-right font-mono" style={{ color: '#475569', fontSize: '14px' }}>
-                      {formatSales(title.dailyAvg, currency, exchangeRate, language)}
-                    </td>
-                    <td className="p-3.5 text-right font-mono" style={{ color: '#475569', fontSize: '14px' }}>
-                      {formatSales(title.peakSales, currency, exchangeRate, language)}
-                    </td>
-                    <td className="p-3.5 text-right" style={{ color: '#475569', fontSize: '14px' }}>
-                      {title.platforms.length}
-                    </td>
-                  </tr>
-                );
-              })}
-              {sortedTitles.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-8 text-center" style={{ color: '#94A3B8', fontSize: '15px' }}>
-                    {language === 'ko' ? '검색 결과가 없습니다.' : '検索結果がありません。'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    <h3 className="font-bold mb-1" style={{ color: '#0F1B4C', fontSize: '16px' }}>
+                      {language === 'ko' ? '누적 플랫폼별 매출 비중' : '累計PF別売上シェア'}
+                    </h3>
+                    <p className="mb-4" style={{ color: '#64748B', fontSize: '13px' }}>
+                      {language === 'ko'
+                        ? `전체 기간 누적 · 총 ${formatSales(selectedTitleData.totalSales, currency, exchangeRate, language)}`
+                        : `全期間累計 · 合計 ${formatSales(selectedTitleData.totalSales, currency, exchangeRate, language)}`}
+                    </p>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie
+                          data={platformShareData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={55}
+                          outerRadius={95}
+                          dataKey="sales"
+                          nameKey="name"
+                          paddingAngle={3}
+                          label={({ name, percent }: any) =>
+                            percent > 0.03 ? `${name} ${(percent * 100).toFixed(1)}%` : null
+                          }
+                          labelLine={{ stroke: '#94A3B8', strokeWidth: 1 }}
+                        >
+                          {platformShareData.map((entry, idx) => (
+                            <Cell
+                              key={idx}
+                              fill={platformColorMap[entry.name] || CHART_COLORS[idx % CHART_COLORS.length]}
+                              stroke="#ffffff"
+                              strokeWidth={2}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          {...tooltipStyle}
+                          formatter={(value: any, name: any) => [
+                            formatSales(value, currency, exchangeRate, language),
+                            name,
+                          ]}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Monthly Sales Bar Chart */}
+                  <div
+                    className="rounded-2xl p-6"
+                    style={{
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #E2E8F0',
+                      boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
+                    }}
+                  >
+                    <h3 className="font-bold mb-1" style={{ color: '#0F1B4C', fontSize: '16px' }}>
+                      {language === 'ko' ? '월별 매출 추이' : '月別売上推移'}
+                    </h3>
+                    <p className="mb-4" style={{ color: '#64748B', fontSize: '13px' }}>
+                      {language === 'ko'
+                        ? `전체 플랫폼 합산 · ${monthlyTrendData.length}개월`
+                        : `全PF合計 · ${monthlyTrendData.length}ヶ月`}
+                    </p>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart data={monthlyTrendData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <XAxis
+                          dataKey="label"
+                          stroke="#CBD5E1"
+                          tick={{ fill: '#64748B', fontSize: 12 }}
+                        />
+                        <YAxis
+                          stroke="#CBD5E1"
+                          tick={{ fill: '#64748B', fontSize: 12 }}
+                          tickFormatter={(v: any) => formatSalesShort(v)}
+                        />
+                        <Tooltip
+                          {...tooltipStyle}
+                          formatter={(value: any) => [
+                            formatSales(value, currency, exchangeRate, language),
+                            language === 'ko' ? '매출' : '売上',
+                          ]}
+                        />
+                        <Bar dataKey="sales" fill="#2563EB" radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </motion.div>
+
+                {/* Weekly Platform Trend - Multi-line Chart */}
+                <motion.div
+                  variants={detailReveal}
+                  className="rounded-2xl p-6"
+                  style={{
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #E2E8F0',
+                    boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
+                  }}
+                >
+                  <h3 className="font-bold mb-1" style={{ color: '#0F1B4C', fontSize: '16px' }}>
+                    {language === 'ko' ? '플랫폼별 주간 매출 추이' : 'PF別週間売上推移'}
+                  </h3>
+                  <p className="mb-4" style={{ color: '#64748B', fontSize: '13px' }}>
+                    {language === 'ko'
+                      ? `거래액 기준 (엔) · ${weeklyPlatformTrend.data.length}주간`
+                      : `取引額基準 (円) · ${weeklyPlatformTrend.data.length}週間`}
+                  </p>
+                  <ResponsiveContainer width="100%" height={350}>
+                    <LineChart data={weeklyPlatformTrend.data}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                      <XAxis
+                        dataKey="label"
+                        stroke="#CBD5E1"
+                        tick={{ fill: '#64748B', fontSize: 11 }}
+                        interval={Math.max(0, Math.floor(weeklyPlatformTrend.data.length / 10))}
+                      />
+                      <YAxis
+                        stroke="#CBD5E1"
+                        tick={{ fill: '#64748B', fontSize: 12 }}
+                        tickFormatter={(v: any) => formatSalesShort(v)}
+                      />
+                      <Tooltip
+                        {...tooltipStyle}
+                        formatter={(value: any, name: any) => [
+                          formatSales(value, currency, exchangeRate, language),
+                          name,
+                        ]}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '13px', color: '#475569' }} />
+                      {weeklyPlatformTrend.platforms.map((platform, idx) => (
+                        <Line
+                          key={platform}
+                          type="monotone"
+                          dataKey={platform}
+                          stroke={platformColorMap[platform] || CHART_COLORS[idx % CHART_COLORS.length]}
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </motion.div>
+              </motion.div>
+            </AnimatePresence>
+          ) : (
+            /* Empty state */
+            <div
+              className="flex items-center justify-center rounded-2xl"
+              style={{
+                backgroundColor: '#ffffff',
+                border: '1px solid #E2E8F0',
+                height: '100%',
+                minHeight: '400px',
+              }}
+            >
+              <div className="text-center">
+                <BarChart3 size={48} color="#CBD5E1" className="mx-auto mb-4" />
+                <p className="font-semibold" style={{ color: '#64748B', fontSize: '16px' }}>
+                  {language === 'ko' ? '작품을 선택하세요' : '作品を選択してください'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
-      </motion.div>
-
-      {/* Selected Title Detail Section */}
-      {selectedTitleData && (
-        <motion.div
-          key={selectedTitleData.titleKR}
-          initial="hidden"
-          animate="visible"
-          variants={staggerContainer}
-          className="space-y-6"
-        >
-          {/* KPI Cards Row */}
-          <motion.div variants={staggerItem} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPICard
-              title={t(language, 'kpi.totalSales')}
-              value={formatSales(selectedTitleData.totalSales, currency, exchangeRate, language)}
-              subtitle={language === 'ko' ? '누적 매출' : '累計売上'}
-            />
-            <KPICard
-              title={language === 'ko' ? '일평균 매출' : '日平均売上'}
-              value={formatSales(selectedTitleData.dailyAvg, currency, exchangeRate, language)}
-              subtitle={language === 'ko' ? '하루 평균' : '1日平均'}
-            />
-            <KPICard
-              title={language === 'ko' ? '최고 매출' : 'ピーク売上'}
-              value={formatSales(selectedTitleData.peakSales, currency, exchangeRate, language)}
-              subtitle={formatDate(selectedTitleData.peakDate, language)}
-            />
-            <KPICard
-              title={language === 'ko' ? '플랫폼 수' : 'PF数'}
-              value={String(selectedTitleData.platforms.length)}
-              subtitle={selectedTitleData.platforms.map((p) => p.name).join(', ')}
-            />
-          </motion.div>
-
-          {/* Daily Sales Trend Line Chart */}
-          <motion.div
-            variants={staggerItem}
-            className="rounded-xl p-6"
-            style={{ backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
-          >
-            <h3 className="font-semibold mb-4" style={{ color: '#0F1B4C', fontSize: '16px' }}>
-              {t(language, 'chart.dailySales')} - {language === 'ko' ? selectedTitleData.titleKR : selectedTitleData.titleJP}
-            </h3>
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={selectedDailySales}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                <XAxis
-                  dataKey="date"
-                  stroke="#CBD5E1"
-                  tick={{ fill: '#64748B', fontSize: 12 }}
-                  tickFormatter={(val: any) => val.substring(5)}
-                />
-                <YAxis
-                  stroke="#CBD5E1"
-                  tick={{ fill: '#64748B', fontSize: 12 }}
-                  tickFormatter={(val: any) => formatSalesShort(val)}
-                />
-                <Tooltip
-                  {...tooltipStyle}
-                  formatter={(value: any) => [
-                    formatSales(value, currency, exchangeRate, language),
-                    t(language, 'table.sales'),
-                  ]}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="sales"
-                  stroke="#2563EB"
-                  strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 5, fill: '#2563EB', stroke: '#fff', strokeWidth: 2 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </motion.div>
-
-          {/* Platform Breakdown Bar Chart */}
-          <motion.div
-            variants={staggerItem}
-            className="rounded-xl p-6"
-            style={{ backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
-          >
-            <h3 className="font-semibold mb-4" style={{ color: '#0F1B4C', fontSize: '16px' }}>
-              {t(language, 'chart.platformShare')} - {language === 'ko' ? selectedTitleData.titleKR : selectedTitleData.titleJP}
-            </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={selectedPlatformData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                <XAxis
-                  dataKey="name"
-                  stroke="#CBD5E1"
-                  tick={{ fill: '#64748B', fontSize: 12 }}
-                />
-                <YAxis
-                  stroke="#CBD5E1"
-                  tick={{ fill: '#64748B', fontSize: 12 }}
-                  tickFormatter={(val: any) => formatSalesShort(val)}
-                />
-                <Tooltip
-                  {...tooltipStyle}
-                  formatter={(value: any) => [
-                    formatSales(value, currency, exchangeRate, language),
-                    t(language, 'table.sales'),
-                  ]}
-                />
-                <Bar dataKey="sales" radius={[6, 6, 0, 0]}>
-                  {selectedPlatformData.map((_entry, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </motion.div>
-        </motion.div>
-      )}
+      </div>
     </motion.div>
   );
 }
