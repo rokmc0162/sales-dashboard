@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -10,6 +10,7 @@ import {
   Database,
   ChevronLeft,
   ChevronRight,
+  X,
 } from 'lucide-react';
 import { useAppState } from '../../hooks/useAppState';
 import { t } from '../../i18n';
@@ -125,12 +126,20 @@ function TogglePill({
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ mobileOpen, onMobileClose }: { mobileOpen?: boolean; onMobileClose?: () => void }) {
   const [expanded, setExpanded] = useState(true);
   const { language, setLanguage, currency, setCurrency } = useAppState();
   const location = useLocation();
 
-  return (
+  // Close mobile sidebar when navigating
+  useEffect(() => {
+    if (mobileOpen && onMobileClose) {
+      onMobileClose();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  const desktopSidebar = (
     <motion.aside
       animate={{ width: expanded ? 260 : 72 }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
@@ -291,5 +300,100 @@ export function Sidebar() {
         </div>
       </div>
     </motion.aside>
+  );
+
+  return (
+    <>
+      {/* Desktop sidebar - hidden on mobile */}
+      <div className="hidden md:block">
+        {desktopSidebar}
+      </div>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={onMobileClose} />
+          <div className="relative z-10 h-full" style={{ width: 260 }}>
+            <motion.aside
+              initial={{ x: -260 }}
+              animate={{ x: 0 }}
+              exit={{ x: -260 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              className="flex flex-col h-screen"
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRight: '1px solid #E2E8F0',
+                boxShadow: '4px 0 16px rgba(0, 0, 0, 0.1)',
+                width: 260,
+              }}
+            >
+              {/* Logo area with close button */}
+              <div className="flex items-center justify-between h-[72px] px-4 shrink-0"
+                style={{ borderBottom: '1px solid #F1F5F9' }}>
+                <RiverseLogo expanded={true} />
+                <button onClick={onMobileClose} className="p-1.5 rounded-lg hover:bg-slate-100"
+                  style={{ border: 'none', background: 'none', cursor: 'pointer' }}>
+                  <X size={20} color="#64748B" />
+                </button>
+              </div>
+
+              {/* Navigation - close on click */}
+              <nav className="flex-1 py-4 overflow-y-auto px-3">
+                <ul className="list-none m-0 p-0 flex flex-col gap-1">
+                  {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location.pathname === item.path;
+                    return (
+                      <li key={item.path}>
+                        <NavLink
+                          to={item.path}
+                          onClick={onMobileClose}
+                          className={cn(
+                            'flex items-center gap-3 py-2.5 px-3 rounded-lg text-sm no-underline transition-all duration-200 relative',
+                            isActive ? 'font-semibold' : 'font-medium'
+                          )}
+                          style={{
+                            color: isActive ? '#FFFFFF' : '#475569',
+                            backgroundColor: isActive ? '#0F1B4C' : 'transparent',
+                          }}
+                        >
+                          {isActive && (
+                            <div className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full"
+                              style={{ backgroundColor: '#2563EB' }} />
+                          )}
+                          <Icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
+                          <span>{t(language, item.labelKey)}</span>
+                        </NavLink>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </nav>
+
+              {/* Bottom controls - always show expanded */}
+              <div className="shrink-0 px-3 py-4 flex flex-col gap-3"
+                style={{ borderTop: '1px solid #F1F5F9' }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#94A3B8' }}>Lang</span>
+                  <TogglePill
+                    options={[{ label: 'KO', value: 'ko' }, { label: 'JA', value: 'ja' }]}
+                    value={language}
+                    onChange={(val) => setLanguage(val as 'ko' | 'ja')}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#94A3B8' }}>Currency</span>
+                  <TogglePill
+                    options={[{ label: 'JPY', value: 'JPY' }, { label: 'KRW', value: 'KRW' }]}
+                    value={currency}
+                    onChange={(val) => setCurrency(val as 'JPY' | 'KRW')}
+                  />
+                </div>
+              </div>
+            </motion.aside>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

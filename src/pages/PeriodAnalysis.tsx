@@ -186,8 +186,8 @@ export function PeriodAnalysis() {
           boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
         }}
       >
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col md:flex-row flex-wrap items-start md:items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full sm:w-auto">
             <label className="font-semibold" style={{ color: '#475569', fontSize: '14px' }}>
               {t(language, 'filter.dateRange')}
             </label>

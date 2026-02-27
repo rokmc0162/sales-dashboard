@@ -223,15 +223,14 @@ export function TitleAnalysis() {
         {t(language, 'nav.titles')}
       </motion.h1>
 
-      <div className="flex gap-6" style={{ height: 'calc(100vh - 160px)' }}>
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 lg:h-[calc(100vh-160px)]">
         {/* ================================================================ */}
         {/* LEFT PANEL — Title List                                          */}
         {/* ================================================================ */}
         <motion.div
           variants={staggerItem}
-          className="flex-shrink-0 flex flex-col rounded-2xl overflow-hidden"
+          className="flex-shrink-0 flex flex-col rounded-2xl overflow-hidden w-full lg:w-80 max-h-[40vh] lg:max-h-none"
           style={{
-            width: '320px',
             backgroundColor: '#ffffff',
             border: '1px solid #E2E8F0',
             boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
@@ -501,7 +500,7 @@ export function TitleAnalysis() {
                         ? `전체 기간 누적 · 총 ${formatSales(selectedTitleData.totalSales, currency, exchangeRate, language)}`
                         : `全期間累計 · 合計 ${formatSales(selectedTitleData.totalSales, currency, exchangeRate, language)}`}
                     </p>
-                    <ResponsiveContainer width="100%" height={280}>
+                    <ResponsiveContainer width="100%" height={240}>
                       <PieChart>
                         <Pie
                           data={platformShareData}
@@ -512,10 +511,6 @@ export function TitleAnalysis() {
                           dataKey="sales"
                           nameKey="name"
                           paddingAngle={3}
-                          label={({ name, percent }: any) =>
-                            percent > 0.03 ? `${name} ${(percent * 100).toFixed(1)}%` : null
-                          }
-                          labelLine={{ stroke: '#94A3B8', strokeWidth: 1 }}
                         >
                           {platformShareData.map((entry, idx) => (
                             <Cell
@@ -535,6 +530,20 @@ export function TitleAnalysis() {
                         />
                       </PieChart>
                     </ResponsiveContainer>
+                    <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-3">
+                      {platformShareData.map((entry, idx) => (
+                        <div key={entry.name} className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: platformColorMap[entry.name] || CHART_COLORS[idx % CHART_COLORS.length] }} />
+                          <span style={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}>
+                            {entry.name}
+                          </span>
+                          <span style={{ color: '#94A3B8', fontSize: '12px' }}>
+                            {entry.percent.toFixed(1)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Monthly Sales Bar Chart */}

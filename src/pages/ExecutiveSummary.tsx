@@ -245,40 +245,6 @@ function LoadingSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
-// Custom Pie Label (Readable for presbyopia)
-// ---------------------------------------------------------------------------
-
-function renderPieLabel({
-  cx,
-  cy,
-  midAngle,
-  outerRadius,
-  percent,
-  name,
-}: // eslint-disable-next-line @typescript-eslint/no-explicit-any
-any) {
-  if (percent < 0.03) return null;
-  const RADIAN = Math.PI / 180;
-  const radius = outerRadius + 28;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
-
-  return (
-    <text
-      x={x}
-      y={y}
-      fill="#334155"
-      textAnchor={x > cx ? 'start' : 'end'}
-      dominantBaseline="central"
-      fontSize={13}
-      fontWeight={500}
-    >
-      {name} {(percent * 100).toFixed(1)}%
-    </text>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -418,7 +384,7 @@ export function ExecutiveSummary() {
       {/* ----------------------------------------------------------------- */}
       <motion.div variants={item}>
         <h1
-          className="text-3xl font-extrabold tracking-tight"
+          className="text-2xl md:text-3xl font-extrabold tracking-tight"
           style={{ color: '#0F1B4C' }}
         >
           {t(language, 'nav.summary')}
@@ -482,7 +448,7 @@ export function ExecutiveSummary() {
       {/* ----------------------------------------------------------------- */}
       <motion.div variants={chartReveal}>
         <ChartCard title={t(language, 'chart.monthlySales')}>
-          <div style={{ width: '100%', height: 380 }}>
+          <div className="h-[280px] md:h-[380px]" style={{ width: '100%' }}>
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={monthlyChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                 <defs>
@@ -534,7 +500,7 @@ export function ExecutiveSummary() {
         <motion.div variants={chartReveal}>
           <ChartCard title={t(language, 'chart.platformShare')}>
             <div style={{ width: '100%', height: 360 }}>
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
                     data={platformChartData}
@@ -545,8 +511,6 @@ export function ExecutiveSummary() {
                     dataKey="sales"
                     nameKey="platform"
                     paddingAngle={3}
-                    label={renderPieLabel}
-                    labelLine={{ stroke: '#94A3B8', strokeWidth: 1 }}
                   >
                     {platformChartData.map((_, index) => (
                       <Cell
@@ -560,6 +524,19 @@ export function ExecutiveSummary() {
                   <Tooltip content={<PieChartTooltip formatter={fmt} />} />
                 </PieChart>
               </ResponsiveContainer>
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-3 px-2">
+                {platformChartData.map((entry, index) => (
+                  <div key={entry.platform} className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }} />
+                    <span style={{ color: '#475569', fontSize: '12px', fontWeight: 500 }}>
+                      {entry.platform}
+                    </span>
+                    <span style={{ color: '#94A3B8', fontSize: '12px' }}>
+                      {entry.percent.toFixed(1)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </ChartCard>
         </motion.div>
