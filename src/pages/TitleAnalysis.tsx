@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { Search } from 'lucide-react';
 import { useDataLoader } from '../hooks/useDataLoader';
 import { useAppState } from '../hooks/useAppState';
 import { t } from '../i18n';
@@ -9,7 +11,26 @@ import {
   CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 
-const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'];
+const CHART_COLORS = ['#2563EB', '#7C3AED', '#0891B2', '#16A34A', '#D97706', '#DC2626', '#DB2777', '#0D9488', '#4F46E5', '#EA580C'];
+
+const tooltipStyle = {
+  contentStyle: { backgroundColor: '#fff', border: '1px solid #E2E8F0', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' },
+  labelStyle: { color: '#475569', fontWeight: 600 },
+  itemStyle: { color: '#0F172A' },
+};
+
+const staggerContainer = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 },
+  },
+};
+
+const staggerItem = {
+  hidden: { opacity: 0, y: 16 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
+};
 
 type SortKey = 'totalSales' | 'dailyAvg' | 'peakSales' | 'platformCount';
 type SortDir = 'asc' | 'desc';
@@ -107,26 +128,26 @@ export function TitleAnalysis() {
   }
 
   function sortIndicator(key: SortKey) {
-    if (sortKey !== key) return ' ↕';
-    return sortDir === 'desc' ? ' ↓' : ' ↑';
+    if (sortKey !== key) return <span style={{ color: '#94A3B8' }}> ↕</span>;
+    return <span style={{ color: '#2563EB' }}>{sortDir === 'desc' ? ' ↓' : ' ↑'}</span>;
   }
 
   if (data.loading) {
     return (
-      <div>
-        <h1 className="text-2xl font-bold mb-6" style={{ color: '#f8fafc' }}>
+      <div style={{ backgroundColor: '#F8FAFC', minHeight: '100vh' }}>
+        <h1 className="text-2xl font-bold mb-6" style={{ color: '#0F1B4C', fontSize: '28px' }}>
           {t(language, 'nav.titles')}
         </h1>
         <div
           className="rounded-xl p-8 flex items-center justify-center"
-          style={{ backgroundColor: '#1e293b', border: '1px solid #334155', minHeight: '400px' }}
+          style={{ backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', minHeight: '400px' }}
         >
           <div className="flex flex-col items-center gap-3">
             <div
               className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"
-              style={{ borderColor: '#3b82f6', borderTopColor: 'transparent' }}
+              style={{ borderColor: '#2563EB', borderTopColor: 'transparent' }}
             />
-            <p className="text-sm" style={{ color: '#94a3b8' }}>Loading...</p>
+            <p style={{ color: '#64748B', fontSize: '15px' }}>Loading...</p>
           </div>
         </div>
       </div>
@@ -134,74 +155,96 @@ export function TitleAnalysis() {
   }
 
   return (
-    <div>
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={staggerContainer}
+    >
       {/* Page Title */}
-      <h1 className="text-2xl font-bold mb-6" style={{ color: '#f8fafc' }}>
+      <motion.h1
+        variants={staggerItem}
+        className="font-bold mb-6"
+        style={{ color: '#0F1B4C', fontSize: '28px', letterSpacing: '-0.02em' }}
+      >
         {t(language, 'nav.titles')}
-      </h1>
+      </motion.h1>
 
       {/* Search Input */}
-      <div className="mb-6">
+      <motion.div variants={staggerItem} className="mb-6 relative">
+        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+          <Search size={20} color="#94A3B8" />
+        </div>
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t(language, 'filter.search')}
-          className="w-full rounded-lg p-3 text-sm outline-none transition-colors focus:ring-2 focus:ring-blue-500/40"
+          className="w-full rounded-xl py-3.5 pl-12 pr-4 outline-none transition-all duration-200"
           style={{
-            backgroundColor: '#0f172a',
-            border: '1px solid #334155',
-            color: '#f8fafc',
+            backgroundColor: '#ffffff',
+            border: '1px solid #E2E8F0',
+            color: '#0F172A',
+            fontSize: '16px',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = '#2563EB';
+            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.12)';
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = '#E2E8F0';
+            e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)';
           }}
         />
-      </div>
+      </motion.div>
 
       {/* Title Ranking Table */}
-      <div
+      <motion.div
+        variants={staggerItem}
         className="rounded-xl p-6 mb-6 overflow-hidden"
-        style={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+        style={{ backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
       >
-        <h2 className="text-lg font-semibold mb-4" style={{ color: '#f8fafc' }}>
+        <h2 className="font-semibold mb-4" style={{ color: '#0F1B4C', fontSize: '18px' }}>
           {t(language, 'chart.topTitles')}
-          <span className="ml-2 text-sm font-normal" style={{ color: '#64748b' }}>
+          <span className="ml-2 font-normal" style={{ color: '#64748B', fontSize: '14px' }}>
             ({sortedTitles.length})
           </span>
         </h2>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full" style={{ fontSize: '14px' }}>
             <thead>
-              <tr style={{ backgroundColor: '#0f172a' }}>
-                <th className="text-left p-3 font-medium" style={{ color: '#94a3b8' }}>
+              <tr style={{ backgroundColor: '#F1F5F9' }}>
+                <th className="text-left p-3.5 font-semibold rounded-tl-lg" style={{ color: '#475569' }}>
                   {t(language, 'table.rank')}
                 </th>
-                <th className="text-left p-3 font-medium" style={{ color: '#94a3b8' }}>
+                <th className="text-left p-3.5 font-semibold" style={{ color: '#475569' }}>
                   {t(language, 'table.title')}
                 </th>
                 <th
-                  className="text-right p-3 font-medium cursor-pointer select-none hover:opacity-80"
-                  style={{ color: '#94a3b8' }}
+                  className="text-right p-3.5 font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity"
+                  style={{ color: '#475569' }}
                   onClick={() => handleSort('totalSales')}
                 >
                   {t(language, 'kpi.totalSales')}{sortIndicator('totalSales')}
                 </th>
                 <th
-                  className="text-right p-3 font-medium cursor-pointer select-none hover:opacity-80"
-                  style={{ color: '#94a3b8' }}
+                  className="text-right p-3.5 font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity"
+                  style={{ color: '#475569' }}
                   onClick={() => handleSort('dailyAvg')}
                 >
                   {language === 'ko' ? '일평균' : '日平均'}{sortIndicator('dailyAvg')}
                 </th>
                 <th
-                  className="text-right p-3 font-medium cursor-pointer select-none hover:opacity-80"
-                  style={{ color: '#94a3b8' }}
+                  className="text-right p-3.5 font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity"
+                  style={{ color: '#475569' }}
                   onClick={() => handleSort('peakSales')}
                 >
                   {language === 'ko' ? '최고 매출' : 'ピーク売上'}{sortIndicator('peakSales')}
                 </th>
                 <th
-                  className="text-right p-3 font-medium cursor-pointer select-none hover:opacity-80"
-                  style={{ color: '#94a3b8' }}
+                  className="text-right p-3.5 font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity rounded-tr-lg"
+                  style={{ color: '#475569' }}
                   onClick={() => handleSort('platformCount')}
                 >
                   {t(language, 'table.platform')}{sortIndicator('platformCount')}
@@ -217,36 +260,37 @@ export function TitleAnalysis() {
                     onClick={() =>
                       setSelectedTitle(isSelected ? null : title.titleKR)
                     }
-                    className="cursor-pointer transition-colors"
+                    className="cursor-pointer transition-all duration-150"
                     style={{
                       backgroundColor: isSelected
-                        ? 'rgba(59, 130, 246, 0.15)'
-                        : 'transparent',
-                      borderBottom: '1px solid #334155',
+                        ? '#EFF6FF'
+                        : idx % 2 === 1 ? '#F8FAFC' : '#ffffff',
+                      borderBottom: '1px solid #F1F5F9',
+                      borderLeft: isSelected ? '3px solid #2563EB' : '3px solid transparent',
                     }}
                     onMouseEnter={(e) => {
-                      if (!isSelected) e.currentTarget.style.backgroundColor = '#334155';
+                      if (!isSelected) e.currentTarget.style.backgroundColor = '#F8FAFC';
                     }}
                     onMouseLeave={(e) => {
-                      if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                      if (!isSelected) e.currentTarget.style.backgroundColor = idx % 2 === 1 ? '#F8FAFC' : '#ffffff';
                     }}
                   >
-                    <td className="p-3 font-mono" style={{ color: '#64748b' }}>
+                    <td className="p-3.5 font-mono" style={{ color: '#94A3B8', fontSize: '14px' }}>
                       {idx + 1}
                     </td>
-                    <td className="p-3 font-medium" style={{ color: isSelected ? '#3b82f6' : '#f8fafc' }}>
+                    <td className="p-3.5 font-semibold" style={{ color: isSelected ? '#2563EB' : '#0F172A', fontSize: '15px' }}>
                       {language === 'ko' ? title.titleKR : title.titleJP}
                     </td>
-                    <td className="p-3 text-right font-mono" style={{ color: '#f8fafc' }}>
+                    <td className="p-3.5 text-right font-mono" style={{ color: '#0F172A', fontSize: '14px', fontWeight: 600 }}>
                       {formatSales(title.totalSales, currency, exchangeRate, language)}
                     </td>
-                    <td className="p-3 text-right font-mono" style={{ color: '#94a3b8' }}>
+                    <td className="p-3.5 text-right font-mono" style={{ color: '#475569', fontSize: '14px' }}>
                       {formatSales(title.dailyAvg, currency, exchangeRate, language)}
                     </td>
-                    <td className="p-3 text-right font-mono" style={{ color: '#94a3b8' }}>
+                    <td className="p-3.5 text-right font-mono" style={{ color: '#475569', fontSize: '14px' }}>
                       {formatSales(title.peakSales, currency, exchangeRate, language)}
                     </td>
-                    <td className="p-3 text-right" style={{ color: '#94a3b8' }}>
+                    <td className="p-3.5 text-right" style={{ color: '#475569', fontSize: '14px' }}>
                       {title.platforms.length}
                     </td>
                   </tr>
@@ -254,7 +298,7 @@ export function TitleAnalysis() {
               })}
               {sortedTitles.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center" style={{ color: '#64748b' }}>
+                  <td colSpan={6} className="p-8 text-center" style={{ color: '#94A3B8', fontSize: '15px' }}>
                     {language === 'ko' ? '검색 결과가 없습니다.' : '検索結果がありません。'}
                   </td>
                 </tr>
@@ -262,13 +306,19 @@ export function TitleAnalysis() {
             </tbody>
           </table>
         </div>
-      </div>
+      </motion.div>
 
       {/* Selected Title Detail Section */}
       {selectedTitleData && (
-        <div className="space-y-6">
+        <motion.div
+          key={selectedTitleData.titleKR}
+          initial="hidden"
+          animate="visible"
+          variants={staggerContainer}
+          className="space-y-6"
+        >
           {/* KPI Cards Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <motion.div variants={staggerItem} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title={t(language, 'kpi.totalSales')}
               value={formatSales(selectedTitleData.totalSales, currency, exchangeRate, language)}
@@ -289,38 +339,33 @@ export function TitleAnalysis() {
               value={String(selectedTitleData.platforms.length)}
               subtitle={selectedTitleData.platforms.map((p) => p.name).join(', ')}
             />
-          </div>
+          </motion.div>
 
           {/* Daily Sales Trend Line Chart */}
-          <div
+          <motion.div
+            variants={staggerItem}
             className="rounded-xl p-6"
-            style={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+            style={{ backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
           >
-            <h3 className="text-base font-semibold mb-4" style={{ color: '#f8fafc' }}>
+            <h3 className="font-semibold mb-4" style={{ color: '#0F1B4C', fontSize: '16px' }}>
               {t(language, 'chart.dailySales')} - {language === 'ko' ? selectedTitleData.titleKR : selectedTitleData.titleJP}
             </h3>
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={selectedDailySales}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                 <XAxis
                   dataKey="date"
-                  stroke="#64748b"
-                  tick={{ fill: '#94a3b8', fontSize: 11 }}
-                  tickFormatter={(val) => val.substring(5)}
+                  stroke="#CBD5E1"
+                  tick={{ fill: '#64748B', fontSize: 12 }}
+                  tickFormatter={(val: any) => val.substring(5)}
                 />
                 <YAxis
-                  stroke="#64748b"
-                  tick={{ fill: '#94a3b8', fontSize: 11 }}
-                  tickFormatter={(val) => formatSalesShort(val)}
+                  stroke="#CBD5E1"
+                  tick={{ fill: '#64748B', fontSize: 12 }}
+                  tickFormatter={(val: any) => formatSalesShort(val)}
                 />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                    color: '#f8fafc',
-                  }}
-                  labelStyle={{ color: '#94a3b8' }}
+                  {...tooltipStyle}
                   formatter={(value: any) => [
                     formatSales(value, currency, exchangeRate, language),
                     t(language, 'table.sales'),
@@ -329,44 +374,39 @@ export function TitleAnalysis() {
                 <Line
                   type="monotone"
                   dataKey="sales"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
+                  stroke="#2563EB"
+                  strokeWidth={2.5}
                   dot={false}
-                  activeDot={{ r: 4, fill: '#3b82f6' }}
+                  activeDot={{ r: 5, fill: '#2563EB', stroke: '#fff', strokeWidth: 2 }}
                 />
               </LineChart>
             </ResponsiveContainer>
-          </div>
+          </motion.div>
 
-          {/* Platform Breakdown Stacked Bar Chart */}
-          <div
+          {/* Platform Breakdown Bar Chart */}
+          <motion.div
+            variants={staggerItem}
             className="rounded-xl p-6"
-            style={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+            style={{ backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
           >
-            <h3 className="text-base font-semibold mb-4" style={{ color: '#f8fafc' }}>
+            <h3 className="font-semibold mb-4" style={{ color: '#0F1B4C', fontSize: '16px' }}>
               {t(language, 'chart.platformShare')} - {language === 'ko' ? selectedTitleData.titleKR : selectedTitleData.titleJP}
             </h3>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={selectedPlatformData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                 <XAxis
                   dataKey="name"
-                  stroke="#64748b"
-                  tick={{ fill: '#94a3b8', fontSize: 11 }}
+                  stroke="#CBD5E1"
+                  tick={{ fill: '#64748B', fontSize: 12 }}
                 />
                 <YAxis
-                  stroke="#64748b"
-                  tick={{ fill: '#94a3b8', fontSize: 11 }}
-                  tickFormatter={(val) => formatSalesShort(val)}
+                  stroke="#CBD5E1"
+                  tick={{ fill: '#64748B', fontSize: 12 }}
+                  tickFormatter={(val: any) => formatSalesShort(val)}
                 />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                    color: '#f8fafc',
-                  }}
-                  labelStyle={{ color: '#94a3b8' }}
+                  {...tooltipStyle}
                   formatter={(value: any) => [
                     formatSales(value, currency, exchangeRate, language),
                     t(language, 'table.sales'),
@@ -379,9 +419,9 @@ export function TitleAnalysis() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   );
 }

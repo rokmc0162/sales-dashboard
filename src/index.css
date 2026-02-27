@@ -1,51 +1,248 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg-primary: #0f172a;
-  --color-bg-secondary: #1e293b;
-  --color-bg-card: #1e293b;
-  --color-bg-hover: #334155;
-  --color-border: #334155;
-  --color-text-primary: #f8fafc;
-  --color-text-secondary: #94a3b8;
-  --color-text-muted: #64748b;
-  --color-accent: #3b82f6;
-  --color-accent-hover: #2563eb;
-  --color-success: #22c55e;
-  --color-danger: #ef4444;
-  --color-warning: #f59e0b;
-  --color-chart-1: #3b82f6;
-  --color-chart-2: #8b5cf6;
-  --color-chart-3: #06b6d4;
-  --color-chart-4: #22c55e;
-  --color-chart-5: #f59e0b;
-  --color-chart-6: #ef4444;
-  --color-chart-7: #ec4899;
-  --color-chart-8: #14b8a6;
+  /* --- Primary Navy (from RIVERSE logo) --- */
+  --color-primary: #0F1B4C;
+  --color-primary-hover: #1A2D6D;
+  --color-primary-light: rgba(15, 27, 76, 0.08);
+
+  /* --- Accent Blue --- */
+  --color-accent: #2563EB;
+  --color-accent-hover: #1D4ED8;
+  --color-accent-light: rgba(37, 99, 235, 0.10);
+
+  /* --- Backgrounds --- */
+  --color-bg-page: #F8FAFC;
+  --color-bg-card: #FFFFFF;
+  --color-bg-sidebar: #FFFFFF;
+  --color-bg-hover: #F1F5F9;
+  --color-bg-active: rgba(15, 27, 76, 0.06);
+
+  /* --- Borders --- */
+  --color-border: #E2E8F0;
+  --color-border-light: #F1F5F9;
+
+  /* --- Text --- */
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94A3B8;
+
+  /* --- Semantic --- */
+  --color-success: #16A34A;
+  --color-success-light: rgba(22, 163, 74, 0.10);
+  --color-danger: #DC2626;
+  --color-danger-light: rgba(220, 38, 38, 0.10);
+  --color-warning: #D97706;
+  --color-warning-light: rgba(217, 119, 6, 0.10);
+
+  /* --- Chart Palette --- */
+  --color-chart-1: #2563EB;
+  --color-chart-2: #7C3AED;
+  --color-chart-3: #0891B2;
+  --color-chart-4: #16A34A;
+  --color-chart-5: #D97706;
+  --color-chart-6: #DC2626;
+  --color-chart-7: #DB2777;
+  --color-chart-8: #0D9488;
+  --color-chart-9: #4F46E5;
+  --color-chart-10: #EA580C;
+
+  /* --- Shadows (for @theme reference) --- */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-sidebar: 1px 0 4px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+
+  /* --- Animation easings --- */
+  --ease-premium: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* ===== BASE ===== */
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
   margin: 0;
-  background-color: var(--color-bg-primary);
+  background-color: var(--color-bg-page);
   color: var(--color-text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', 'Noto Sans JP', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
+/* ===== CUSTOM SCROLLBAR (Premium thin style) ===== */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
-  background: var(--color-bg-primary);
+  background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
+  background: #CBD5E1;
+  border-radius: 100px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
+  background: #94A3B8;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #CBD5E1 transparent;
+}
+
+/* ===== CARD UTILITY ===== */
+.card-premium {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.25s var(--ease-premium), transform 0.25s var(--ease-premium);
+}
+
+.card-premium:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* ===== KEYFRAME ANIMATIONS ===== */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes pulse-soft {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes countUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Animation utility classes */
+.animate-fade-in {
+  animation: fadeIn 0.5s var(--ease-premium) both;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s var(--ease-premium) both;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.4s var(--ease-premium) both;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.4s var(--ease-premium) both;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(37, 99, 235, 0.04) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.animate-count-up {
+  animation: countUp 0.6s var(--ease-premium) both;
+}
+
+/* Stagger delays */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+.stagger-5 { animation-delay: 0.25s; }
+.stagger-6 { animation-delay: 0.3s; }
+
+/* ===== RECHARTS OVERRIDES (light theme) ===== */
+.recharts-cartesian-grid line {
+  stroke: #E2E8F0;
+}
+
+.recharts-text {
+  fill: #475569;
+  font-size: 12px;
+}
+
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ===== SELECTION ===== */
+::selection {
+  background: rgba(37, 99, 235, 0.15);
+  color: #0F172A;
+}
+
+/* ===== FOCUS STYLES (accessibility) ===== */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }

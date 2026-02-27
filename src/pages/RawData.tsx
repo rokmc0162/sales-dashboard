@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { useDataLoader } from '../hooks/useDataLoader';
 import { useAppState } from '../hooks/useAppState';
 import { t } from '../i18n';
@@ -9,6 +10,17 @@ const PAGE_SIZE = 50;
 
 type SortKey = 'date' | 'title' | 'channel' | 'sales';
 type SortDir = 'asc' | 'desc';
+
+const fadeIn = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0 },
+};
+
+const stagger = {
+  visible: {
+    transition: { staggerChildren: 0.08 },
+  },
+};
 
 export function RawData() {
   const data = useDataLoader();
@@ -142,34 +154,54 @@ export function RawData() {
   if (data.loading) {
     return (
       <div className="flex items-center justify-center" style={{ minHeight: '400px' }}>
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#3b82f6' }} />
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2" style={{ borderColor: '#2563EB' }} />
       </div>
     );
   }
 
   return (
-    <div>
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={stagger}
+    >
       {/* Page title */}
-      <h1 className="text-2xl font-bold mb-6" style={{ color: '#f8fafc' }}>
+      <motion.h1
+        variants={fadeIn}
+        className="font-bold mb-8"
+        style={{ color: '#0F1B4C', fontSize: '28px', letterSpacing: '-0.025em' }}
+      >
         {t(language, 'nav.rawData')}
-      </h1>
+      </motion.h1>
 
       {/* Filter controls row */}
-      <div
-        className="rounded-xl p-6 mb-6"
-        style={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+      <motion.div
+        variants={fadeIn}
+        className="rounded-2xl p-6 mb-6"
+        style={{
+          backgroundColor: '#ffffff',
+          border: '1px solid #E2E8F0',
+          boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
+        }}
       >
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-end gap-5">
           {/* Platform dropdown */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium" style={{ color: '#94a3b8' }}>
+          <div className="flex flex-col gap-1.5">
+            <label className="font-semibold" style={{ color: '#475569', fontSize: '13px', letterSpacing: '0.02em' }}>
               {t(language, 'filter.platform')}
             </label>
             <select
               value={platformFilter}
               onChange={e => handleFilterChange(setPlatformFilter, e.target.value)}
-              className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              style={{ backgroundColor: '#0f172a', border: '1px solid #334155', color: '#f8fafc' }}
+              className="rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow cursor-pointer"
+              style={{
+                backgroundColor: '#ffffff',
+                border: '1px solid #CBD5E1',
+                color: '#0F172A',
+                fontSize: '14px',
+                fontWeight: 500,
+                minWidth: '160px',
+              }}
             >
               <option value="">{t(language, 'filter.allPlatforms')}</option>
               {platforms.map(p => (
@@ -179,23 +211,38 @@ export function RawData() {
           </div>
 
           {/* Title search */}
-          <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
-            <label className="text-xs font-medium" style={{ color: '#94a3b8' }}>
+          <div className="flex flex-col gap-1.5 flex-1 min-w-[220px]">
+            <label className="font-semibold" style={{ color: '#475569', fontSize: '13px', letterSpacing: '0.02em' }}>
               {t(language, 'filter.title')}
             </label>
-            <input
-              type="text"
-              value={titleSearch}
-              onChange={e => handleFilterChange(setTitleSearch, e.target.value)}
-              placeholder={t(language, 'filter.search')}
-              className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              style={{ backgroundColor: '#0f172a', border: '1px solid #334155', color: '#f8fafc' }}
-            />
+            <div className="relative">
+              <svg
+                className="absolute left-3.5 top-1/2 -translate-y-1/2"
+                width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                value={titleSearch}
+                onChange={e => handleFilterChange(setTitleSearch, e.target.value)}
+                placeholder={t(language, 'filter.search')}
+                className="w-full rounded-xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #CBD5E1',
+                  color: '#0F172A',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                }}
+              />
+            </div>
           </div>
 
           {/* Date range */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium" style={{ color: '#94a3b8' }}>
+          <div className="flex flex-col gap-1.5">
+            <label className="font-semibold" style={{ color: '#475569', fontSize: '13px', letterSpacing: '0.02em' }}>
               {t(language, 'filter.dateRange')}
             </label>
             <div className="flex items-center gap-2">
@@ -203,91 +250,126 @@ export function RawData() {
                 type="date"
                 value={startDate}
                 onChange={e => handleFilterChange(setStartDate, e.target.value)}
-                className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                style={{ backgroundColor: '#0f172a', border: '1px solid #334155', color: '#f8fafc' }}
+                className="rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #CBD5E1',
+                  color: '#0F172A',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                }}
               />
-              <span style={{ color: '#94a3b8' }}>~</span>
+              <span style={{ color: '#94A3B8', fontSize: '16px', fontWeight: 500 }}>~</span>
               <input
                 type="date"
                 value={endDate}
                 onChange={e => handleFilterChange(setEndDate, e.target.value)}
-                className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                style={{ backgroundColor: '#0f172a', border: '1px solid #334155', color: '#f8fafc' }}
+                className="rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #CBD5E1',
+                  color: '#0F172A',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                }}
               />
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Summary row + CSV download */}
-      <div className="flex flex-wrap items-center justify-between mb-4 gap-4">
+      <motion.div
+        variants={fadeIn}
+        className="flex flex-wrap items-center justify-between mb-5 gap-4"
+      >
         <div className="flex items-center gap-4">
-          <span className="text-sm" style={{ color: '#94a3b8' }}>
+          <span style={{ color: '#64748B', fontSize: '14px', fontWeight: 500 }}>
             {t(language, 'table.showing')}{' '}
-            <span style={{ color: '#f8fafc', fontWeight: 600 }}>
+            <span style={{ color: '#0F172A', fontWeight: 700, fontSize: '15px' }}>
               {filteredData.length.toLocaleString()}
             </span>{' '}
             {t(language, 'table.of')}{' '}
-            <span style={{ color: '#f8fafc', fontWeight: 600 }}>
+            <span style={{ color: '#0F172A', fontWeight: 700, fontSize: '15px' }}>
               {data.dailySales.length.toLocaleString()}
             </span>
           </span>
-          <span style={{ color: '#334155' }}>|</span>
-          <span className="text-sm" style={{ color: '#94a3b8' }}>
+          <span style={{ color: '#E2E8F0', fontSize: '18px' }}>|</span>
+          <span style={{ color: '#64748B', fontSize: '14px', fontWeight: 500 }}>
             {t(language, 'table.sales')}:{' '}
-            <span style={{ color: '#f8fafc', fontWeight: 600 }}>
+            <span style={{ color: '#0F172A', fontWeight: 700, fontSize: '15px' }}>
               {formatSales(totalFilteredSales, currency, exchangeRate, language)}
             </span>
           </span>
         </div>
         <button
           onClick={downloadCSV}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-80"
-          style={{ backgroundColor: '#3b82f6', color: '#f8fafc' }}
+          className="flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 hover:shadow-lg"
+          style={{
+            backgroundColor: '#2563EB',
+            color: '#ffffff',
+            fontSize: '14px',
+            boxShadow: '0 2px 8px rgba(37,99,235,0.25)',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1D4ED8'; }}
+          onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#2563EB'; }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           {t(language, 'table.download')}
         </button>
-      </div>
+      </motion.div>
 
       {/* Data table */}
-      <div
-        className="rounded-xl overflow-hidden"
-        style={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+      <motion.div
+        variants={fadeIn}
+        className="rounded-2xl overflow-hidden"
+        style={{
+          backgroundColor: '#ffffff',
+          border: '1px solid #E2E8F0',
+          boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
+        }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" style={{ color: '#f8fafc' }}>
+          <table className="w-full" style={{ fontSize: '14px' }}>
             <thead>
-              <tr style={{ backgroundColor: '#0f172a' }}>
+              <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '2px solid #E2E8F0' }}>
                 <th
-                  className="text-left py-3 px-4 font-medium cursor-pointer select-none hover:opacity-80"
-                  style={{ color: '#94a3b8' }}
+                  className="text-left py-3.5 px-5 font-semibold cursor-pointer select-none transition-colors duration-150"
+                  style={{ color: '#475569' }}
                   onClick={() => handleSort('date')}
+                  onMouseEnter={e => { e.currentTarget.style.color = '#0F172A'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '#475569'; }}
                 >
                   {t(language, 'table.date')}{sortIcon('date')}
                 </th>
                 <th
-                  className="text-left py-3 px-4 font-medium cursor-pointer select-none hover:opacity-80"
-                  style={{ color: '#94a3b8' }}
+                  className="text-left py-3.5 px-5 font-semibold cursor-pointer select-none transition-colors duration-150"
+                  style={{ color: '#475569' }}
                   onClick={() => handleSort('title')}
+                  onMouseEnter={e => { e.currentTarget.style.color = '#0F172A'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '#475569'; }}
                 >
                   {t(language, 'table.title')}{sortIcon('title')}
                 </th>
                 <th
-                  className="text-left py-3 px-4 font-medium cursor-pointer select-none hover:opacity-80"
-                  style={{ color: '#94a3b8' }}
+                  className="text-left py-3.5 px-5 font-semibold cursor-pointer select-none transition-colors duration-150"
+                  style={{ color: '#475569' }}
                   onClick={() => handleSort('channel')}
+                  onMouseEnter={e => { e.currentTarget.style.color = '#0F172A'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '#475569'; }}
                 >
                   {t(language, 'table.platform')}{sortIcon('channel')}
                 </th>
                 <th
-                  className="text-right py-3 px-4 font-medium cursor-pointer select-none hover:opacity-80"
-                  style={{ color: '#94a3b8' }}
+                  className="text-right py-3.5 px-5 font-semibold cursor-pointer select-none transition-colors duration-150"
+                  style={{ color: '#475569' }}
                   onClick={() => handleSort('sales')}
+                  onMouseEnter={e => { e.currentTarget.style.color = '#0F172A'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '#475569'; }}
                 >
                   {t(language, 'table.sales')}{sortIcon('sales')}
                 </th>
@@ -296,7 +378,7 @@ export function RawData() {
             <tbody>
               {pagedData.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-12" style={{ color: '#94a3b8' }}>
+                  <td colSpan={4} className="text-center py-16" style={{ color: '#94A3B8', fontSize: '15px' }}>
                     {language === 'ko' ? '데이터가 없습니다' : 'データがありません'}
                   </td>
                 </tr>
@@ -304,26 +386,33 @@ export function RawData() {
                 pagedData.map((row, idx) => (
                   <tr
                     key={`${row.date}-${row.titleKR}-${row.channel}-${idx}`}
+                    className="transition-colors duration-100"
                     style={{
-                      backgroundColor: idx % 2 === 0 ? 'transparent' : '#0f172a',
-                      borderBottom: '1px solid #334155',
+                      backgroundColor: idx % 2 === 0 ? '#ffffff' : '#F8FAFC',
+                      borderBottom: '1px solid #F1F5F9',
                     }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#F1F5F9'; }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = idx % 2 === 0 ? '#ffffff' : '#F8FAFC'; }}
                   >
-                    <td className="py-2.5 px-4" style={{ color: '#94a3b8' }}>
+                    <td className="py-3 px-5 font-medium" style={{ color: '#64748B' }}>
                       {row.date}
                     </td>
-                    <td className="py-2.5 px-4 max-w-[300px] truncate">
+                    <td className="py-3 px-5 max-w-[300px] truncate font-medium" style={{ color: '#0F172A' }}>
                       {language === 'ko' ? row.titleKR : row.titleJP}
                     </td>
-                    <td className="py-2.5 px-4">
+                    <td className="py-3 px-5">
                       <span
-                        className="inline-block px-2 py-0.5 rounded text-xs font-medium"
-                        style={{ backgroundColor: '#334155', color: '#f8fafc' }}
+                        className="inline-block px-2.5 py-1 rounded-lg font-semibold"
+                        style={{
+                          backgroundColor: '#EFF6FF',
+                          color: '#2563EB',
+                          fontSize: '12px',
+                        }}
                       >
                         {row.channel}
                       </span>
                     </td>
-                    <td className="py-2.5 px-4 text-right font-medium">
+                    <td className="py-3 px-5 text-right font-bold" style={{ color: '#0F172A', fontSize: '15px' }}>
                       {formatSales(row.sales, currency, exchangeRate, language)}
                     </td>
                   </tr>
@@ -336,10 +425,10 @@ export function RawData() {
         {/* Pagination */}
         {totalPages > 1 && (
           <div
-            className="flex items-center justify-between py-3 px-4"
-            style={{ borderTop: '1px solid #334155', backgroundColor: '#0f172a' }}
+            className="flex items-center justify-between py-4 px-5"
+            style={{ borderTop: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}
           >
-            <span className="text-xs" style={{ color: '#94a3b8' }}>
+            <span style={{ color: '#64748B', fontSize: '13px', fontWeight: 500 }}>
               {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, sortedData.length)}{' '}
               / {sortedData.length.toLocaleString()}
             </span>
@@ -347,26 +436,50 @@ export function RawData() {
               <button
                 onClick={() => setPage(p => Math.max(0, p - 1))}
                 disabled={page === 0}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
-                style={{ backgroundColor: '#334155', color: '#f8fafc' }}
+                className="px-4 py-2 rounded-xl font-semibold transition-all duration-200 disabled:opacity-35"
+                style={{
+                  backgroundColor: '#E2E8F0',
+                  color: '#475569',
+                  fontSize: '13px',
+                }}
+                onMouseEnter={e => {
+                  if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = '#CBD5E1';
+                }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#E2E8F0'; }}
               >
                 {language === 'ko' ? '이전' : '前へ'}
               </button>
-              <span className="text-xs px-2" style={{ color: '#94a3b8' }}>
-                {page + 1} / {totalPages}
-              </span>
+              <div
+                className="flex items-center gap-1 px-3 py-2 rounded-xl"
+                style={{ backgroundColor: '#ffffff', border: '1px solid #E2E8F0' }}
+              >
+                <span style={{ color: '#2563EB', fontWeight: 700, fontSize: '14px' }}>
+                  {page + 1}
+                </span>
+                <span style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500 }}>
+                  {' / '}{totalPages}
+                </span>
+              </div>
               <button
                 onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
                 disabled={page >= totalPages - 1}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
-                style={{ backgroundColor: '#334155', color: '#f8fafc' }}
+                className="px-4 py-2 rounded-xl font-semibold transition-all duration-200 disabled:opacity-35"
+                style={{
+                  backgroundColor: '#E2E8F0',
+                  color: '#475569',
+                  fontSize: '13px',
+                }}
+                onMouseEnter={e => {
+                  if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = '#CBD5E1';
+                }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#E2E8F0'; }}
               >
                 {language === 'ko' ? '다음' : '次へ'}
               </button>
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

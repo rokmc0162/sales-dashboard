@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { useDataLoader } from '../hooks/useDataLoader';
 import { useAppState } from '../hooks/useAppState';
 import { t } from '../i18n';
@@ -10,9 +11,26 @@ import {
   ResponsiveContainer, Legend,
 } from 'recharts';
 
-const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'];
+const CHART_COLORS = ['#2563EB', '#7C3AED', '#0891B2', '#16A34A', '#D97706', '#DC2626', '#DB2777', '#0D9488', '#4F46E5', '#EA580C'];
 
 type Granularity = 'daily' | 'weekly' | 'monthly';
+
+const fadeIn = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0 },
+};
+
+const stagger = {
+  visible: {
+    transition: { staggerChildren: 0.08 },
+  },
+};
+
+const tooltipStyle = {
+  contentStyle: { backgroundColor: '#fff', border: '1px solid #E2E8F0', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' },
+  labelStyle: { color: '#475569', fontWeight: 600 },
+  itemStyle: { color: '#0F172A' },
+};
 
 export function PeriodAnalysis() {
   const data = useDataLoader();
@@ -125,7 +143,7 @@ export function PeriodAnalysis() {
   if (data.loading) {
     return (
       <div className="flex items-center justify-center" style={{ minHeight: '400px' }}>
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#3b82f6' }} />
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2" style={{ borderColor: '#2563EB' }} />
       </div>
     );
   }
@@ -143,43 +161,62 @@ export function PeriodAnalysis() {
     { label: t(language, 'filter.all'), value: 'all' },
   ];
 
-  const tooltipStyle = {
-    contentStyle: { backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' },
-    labelStyle: { color: '#94a3b8' },
-    itemStyle: { color: '#f8fafc' },
-  };
-
   return (
-    <div>
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={stagger}
+    >
       {/* Page title */}
-      <h1 className="text-2xl font-bold mb-6" style={{ color: '#f8fafc' }}>
+      <motion.h1
+        variants={fadeIn}
+        className="font-bold mb-8"
+        style={{ color: '#0F1B4C', fontSize: '28px', letterSpacing: '-0.025em' }}
+      >
         {t(language, 'nav.period')}
-      </h1>
+      </motion.h1>
 
       {/* Date range picker */}
-      <div
-        className="rounded-xl p-6 mb-6"
-        style={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+      <motion.div
+        variants={fadeIn}
+        className="rounded-2xl p-6 mb-6"
+        style={{
+          backgroundColor: '#ffffff',
+          border: '1px solid #E2E8F0',
+          boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
+        }}
       >
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium" style={{ color: '#94a3b8' }}>
+          <div className="flex items-center gap-3">
+            <label className="font-semibold" style={{ color: '#475569', fontSize: '14px' }}>
               {t(language, 'filter.dateRange')}
             </label>
             <input
               type="date"
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
-              className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              style={{ backgroundColor: '#0f172a', border: '1px solid #334155', color: '#f8fafc' }}
+              className="rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+              style={{
+                backgroundColor: '#ffffff',
+                border: '1px solid #CBD5E1',
+                color: '#0F172A',
+                fontSize: '15px',
+                fontWeight: 500,
+              }}
             />
-            <span style={{ color: '#94a3b8' }}>~</span>
+            <span style={{ color: '#94A3B8', fontSize: '16px', fontWeight: 500 }}>~</span>
             <input
               type="date"
               value={endDate}
               onChange={e => setEndDate(e.target.value)}
-              className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              style={{ backgroundColor: '#0f172a', border: '1px solid #334155', color: '#f8fafc' }}
+              className="rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+              style={{
+                backgroundColor: '#ffffff',
+                border: '1px solid #CBD5E1',
+                color: '#0F172A',
+                fontSize: '15px',
+                fontWeight: 500,
+              }}
             />
           </div>
           <div className="flex items-center gap-2">
@@ -187,73 +224,108 @@ export function PeriodAnalysis() {
               <button
                 key={String(qr.value)}
                 onClick={() => applyQuickRange(qr.value)}
-                className="px-3 py-1.5 rounded-full text-xs font-medium transition-colors hover:opacity-80"
-                style={{ backgroundColor: '#334155', color: '#f8fafc' }}
+                className="px-4 py-2 rounded-full font-semibold transition-all duration-200 hover:shadow-md"
+                style={{
+                  backgroundColor: '#F1F5F9',
+                  color: '#475569',
+                  fontSize: '13px',
+                  border: '1px solid #E2E8F0',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.backgroundColor = '#E2E8F0';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.backgroundColor = '#F1F5F9';
+                }}
               >
                 {qr.label}
               </button>
             ))}
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <KPICard
-          title={t(language, 'kpi.totalSales')}
-          value={formatSales(kpis.totalSales, currency, exchangeRate, language)}
-          subtitle={`${kpis.dayCount}${language === 'ko' ? '일간' : '日間'}`}
-        />
-        <KPICard
-          title={language === 'ko' ? '일 평균 매출' : '日平均売上'}
-          value={formatSales(Math.round(kpis.dailyAvg), currency, exchangeRate, language)}
-        />
-        <KPICard
-          title={t(language, 'period.vsPrevious')}
-          value={formatPercent(kpis.change)}
-          change={kpis.change}
-          subtitle={formatSales(kpis.prevTotal, currency, exchangeRate, language)}
-        />
-      </div>
+      <motion.div variants={stagger} className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
+        <motion.div variants={fadeIn}>
+          <KPICard
+            title={t(language, 'kpi.totalSales')}
+            value={formatSales(kpis.totalSales, currency, exchangeRate, language)}
+            subtitle={`${kpis.dayCount}${language === 'ko' ? '일간' : '日間'}`}
+          />
+        </motion.div>
+        <motion.div variants={fadeIn}>
+          <KPICard
+            title={language === 'ko' ? '일 평균 매출' : '日平均売上'}
+            value={formatSales(Math.round(kpis.dailyAvg), currency, exchangeRate, language)}
+          />
+        </motion.div>
+        <motion.div variants={fadeIn}>
+          <KPICard
+            title={t(language, 'period.vsPrevious')}
+            value={formatPercent(kpis.change)}
+            change={kpis.change}
+            subtitle={formatSales(kpis.prevTotal, currency, exchangeRate, language)}
+          />
+        </motion.div>
+      </motion.div>
 
       {/* Time granularity toggle */}
-      <div className="flex items-center gap-2 mb-6">
-        {granularityOptions.map(opt => (
-          <button
-            key={opt.key}
-            onClick={() => setGranularity(opt.key)}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              backgroundColor: granularity === opt.key ? '#3b82f6' : '#334155',
-              color: '#f8fafc',
-            }}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+      <motion.div variants={fadeIn} className="flex items-center gap-1.5 mb-6">
+        <div
+          className="inline-flex rounded-xl p-1"
+          style={{ backgroundColor: '#F1F5F9', border: '1px solid #E2E8F0' }}
+        >
+          {granularityOptions.map(opt => (
+            <button
+              key={opt.key}
+              onClick={() => setGranularity(opt.key)}
+              className="px-5 py-2.5 rounded-lg font-semibold transition-all duration-200"
+              style={{
+                backgroundColor: granularity === opt.key ? '#2563EB' : 'transparent',
+                color: granularity === opt.key ? '#ffffff' : '#64748B',
+                fontSize: '14px',
+                boxShadow: granularity === opt.key ? '0 2px 8px rgba(37,99,235,0.3)' : 'none',
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </motion.div>
 
       {/* Sales chart by granularity */}
-      <div
-        className="rounded-xl p-6 mb-6"
-        style={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+      <motion.div
+        variants={fadeIn}
+        className="rounded-2xl p-6 mb-6"
+        style={{
+          backgroundColor: '#ffffff',
+          border: '1px solid #E2E8F0',
+          boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
+        }}
       >
-        <h3 className="text-lg font-semibold mb-4" style={{ color: '#f8fafc' }}>
+        <h3 className="font-bold mb-5" style={{ color: '#0F1B4C', fontSize: '18px' }}>
           {t(language, 'chart.dailySales')}
         </h3>
-        <ResponsiveContainer width="100%" height={350}>
+        <ResponsiveContainer width="100%" height={370}>
           <AreaChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <defs>
+              <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#2563EB" stopOpacity={0.20} />
+                <stop offset="100%" stopColor="#2563EB" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
             <XAxis
               dataKey="label"
-              stroke="#94a3b8"
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
-              tickFormatter={v => granularity === 'monthly' ? v : v.substring(5)}
+              stroke="#CBD5E1"
+              tick={{ fill: '#64748B', fontSize: 12, fontWeight: 500 }}
+              tickFormatter={(v: any) => granularity === 'monthly' ? v : v.substring(5)}
             />
             <YAxis
-              stroke="#94a3b8"
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
-              tickFormatter={v => formatSalesShort(v)}
+              stroke="#CBD5E1"
+              tick={{ fill: '#64748B', fontSize: 12, fontWeight: 500 }}
+              tickFormatter={(v: any) => formatSalesShort(v)}
             />
             <Tooltip
               {...tooltipStyle}
@@ -263,35 +335,41 @@ export function PeriodAnalysis() {
               type="monotone"
               dataKey="sales"
               stroke={CHART_COLORS[0]}
-              fill={CHART_COLORS[0]}
-              fillOpacity={0.15}
-              strokeWidth={2}
+              fill="url(#salesGradient)"
+              strokeWidth={2.5}
+              dot={false}
+              activeDot={{ r: 5, fill: CHART_COLORS[0], stroke: '#fff', strokeWidth: 2 }}
             />
           </AreaChart>
         </ResponsiveContainer>
-      </div>
+      </motion.div>
 
       {/* Period comparison chart */}
-      <div
-        className="rounded-xl p-6"
-        style={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+      <motion.div
+        variants={fadeIn}
+        className="rounded-2xl p-6"
+        style={{
+          backgroundColor: '#ffffff',
+          border: '1px solid #E2E8F0',
+          boxShadow: '0 1px 3px 0 rgba(0,0,0,0.05)',
+        }}
       >
-        <h3 className="text-lg font-semibold mb-4" style={{ color: '#f8fafc' }}>
+        <h3 className="font-bold mb-5" style={{ color: '#0F1B4C', fontSize: '18px' }}>
           {t(language, 'period.vsPrevious')}
         </h3>
-        <ResponsiveContainer width="100%" height={350}>
+        <ResponsiveContainer width="100%" height={370}>
           <BarChart data={comparisonData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
             <XAxis
               dataKey="day"
-              stroke="#94a3b8"
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
-              label={{ value: language === 'ko' ? '일차' : '日目', position: 'insideBottom', offset: -5, fill: '#94a3b8' }}
+              stroke="#CBD5E1"
+              tick={{ fill: '#64748B', fontSize: 12, fontWeight: 500 }}
+              label={{ value: language === 'ko' ? '일차' : '日目', position: 'insideBottom', offset: -5, fill: '#94A3B8', fontSize: 13 }}
             />
             <YAxis
-              stroke="#94a3b8"
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
-              tickFormatter={v => formatSalesShort(v)}
+              stroke="#CBD5E1"
+              tick={{ fill: '#64748B', fontSize: 12, fontWeight: 500 }}
+              tickFormatter={(v: any) => formatSalesShort(v)}
             />
             <Tooltip
               {...tooltipStyle}
@@ -300,23 +378,25 @@ export function PeriodAnalysis() {
                 name,
               ]}
             />
-            <Legend wrapperStyle={{ color: '#94a3b8' }} />
+            <Legend
+              wrapperStyle={{ color: '#475569', fontSize: '14px', fontWeight: 500 }}
+            />
             <Bar
               dataKey="current"
               name={language === 'ko' ? '선택 기간' : '選択期間'}
               fill={CHART_COLORS[0]}
-              radius={[2, 2, 0, 0]}
+              radius={[4, 4, 0, 0]}
             />
             <Bar
               dataKey="previous"
               name={language === 'ko' ? '이전 기간' : '前期間'}
               fill={CHART_COLORS[1]}
-              opacity={0.6}
-              radius={[2, 2, 0, 0]}
+              opacity={0.55}
+              radius={[4, 4, 0, 0]}
             />
           </BarChart>
         </ResponsiveContainer>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
