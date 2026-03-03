@@ -96,7 +96,7 @@
     "volatile": "変動"
   },
   "ai": {
-    "briefingTitle": "AIインサイト",
-    "generatedAt": "生成時刻"
+    "briefingTitle": "主要イシューブリーフィング",
+    "generatedAt": "時点"
   }
 }

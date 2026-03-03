@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp } from 'lucide-react';
 import { generateInsights } from '@/utils/insights';
-import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { PlatformSummary, TitleSummary, Language } from '@/types';
 
@@ -24,21 +23,21 @@ const containerVariants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
-    transition: { staggerChildren: 0.15 },
+    transition: { staggerChildren: 0.08 },
   },
   exit: {
     opacity: 0,
-    transition: { duration: 0.2 },
+    transition: { duration: 0.15 },
   },
 };
 
 const itemVariants = {
-  hidden: { opacity: 0, x: -20 },
+  hidden: { opacity: 0, y: 8 },
   show: {
     opacity: 1,
-    x: 0,
+    y: 0,
     transition: {
-      duration: 0.45,
+      duration: 0.35,
       ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
     },
   },
@@ -48,26 +47,34 @@ const itemVariants = {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-const borderColorMap: Record<string, string> = {
-  success: 'border-l-emerald-500',
-  warning: 'border-l-amber-500',
-  info: 'border-l-blue-500',
-};
-
-const bgColorMap: Record<string, string> = {
-  success: 'bg-emerald-500/5',
-  warning: 'bg-amber-500/5',
-  info: 'bg-blue-500/5',
+const typeStyles: Record<string, { border: string; bg: string; dot: string }> = {
+  success: {
+    border: 'border-l-emerald-500',
+    bg: 'hover:bg-emerald-50/50',
+    dot: 'bg-emerald-500',
+  },
+  warning: {
+    border: 'border-l-amber-500',
+    bg: 'hover:bg-amber-50/50',
+    dot: 'bg-amber-500',
+  },
+  info: {
+    border: 'border-l-blue-500',
+    bg: 'hover:bg-blue-50/50',
+    dot: 'bg-blue-500',
+  },
 };
 
 function formatTime(language: Language): string {
   const now = new Date();
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  if (language === 'ko') {
-    return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${hours}:${minutes} \uC0DD\uC131`;
-  }
-  return `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${hours}:${minutes} \u751F\u6210`;
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const h = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  return language === 'ko'
+    ? `${y}.${m}.${d} ${h}:${min} 기준`
+    : `${y}/${m}/${d} ${h}:${min} 時点`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -90,53 +97,45 @@ export function AIPlatformMonitor({
 
   if (insights.length === 0) return null;
 
+  const title = language === 'ko' ? '주요 이슈 브리핑' : '主要イシューブリーフィング';
+
   return (
-    <Card variant="glass" className="overflow-hidden">
-      {/* -------------------------------------------------------------- */}
-      {/*  Header                                                         */}
-      {/* -------------------------------------------------------------- */}
+    <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+      {/* Header */}
       <button
         type="button"
         onClick={() => setIsExpanded((prev) => !prev)}
         className={cn(
-          'w-full flex items-center justify-between px-6 py-4',
-          'cursor-pointer select-none',
-          'transition-colors duration-200 hover:bg-accent/40',
+          'w-full flex items-center justify-between px-5 py-3.5',
+          'cursor-pointer select-none bg-transparent border-none',
+          'transition-colors duration-150 hover:bg-muted/50',
         )}
       >
         <div className="flex items-center gap-2.5">
-          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500/20 to-blue-500/20">
-            <Sparkles size={18} className="text-violet-500" />
-            {/* Animated pulse ring */}
-            <span className="absolute inset-0 rounded-lg bg-gradient-to-br from-violet-500/10 to-blue-500/10 animate-ping opacity-40" />
-          </div>
-          <span
-            className={cn(
-              'text-base font-bold tracking-tight',
-              'bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent',
-            )}
-          >
-            {language === 'ko' ? 'AI \uC778\uC0AC\uC774\uD2B8' : 'AI\u30A4\u30F3\u30B5\u30A4\u30C8'}
+          <Activity size={18} className="text-primary" />
+          <span className="text-[15px] font-bold text-primary">
+            {title}
           </span>
-          <span className="text-xs text-muted-foreground font-medium ml-1">
-            ({insights.length})
+          <span className="text-xs text-muted-foreground font-medium px-1.5 py-0.5 rounded-md bg-muted">
+            {insights.length}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground hidden sm:inline">
+        <div className="flex items-center gap-2.5">
+          <span className="text-[11px] text-muted-foreground hidden sm:inline">
             {generatedAt}
           </span>
           {isExpanded ? (
-            <ChevronUp size={18} className="text-muted-foreground" />
+            <ChevronUp size={16} className="text-muted-foreground" />
           ) : (
-            <ChevronDown size={18} className="text-muted-foreground" />
+            <ChevronDown size={16} className="text-muted-foreground" />
           )}
         </div>
       </button>
 
-      {/* -------------------------------------------------------------- */}
-      {/*  Body                                                           */}
-      {/* -------------------------------------------------------------- */}
+      {/* Divider */}
+      {isExpanded && <div className="border-t border-border/60" />}
+
+      {/* Body */}
       <AnimatePresence initial={false}>
         {isExpanded && (
           <motion.div
@@ -145,38 +144,40 @@ export function AIPlatformMonitor({
             animate="show"
             exit="exit"
             variants={containerVariants}
+            className="px-5 py-4"
           >
-            <CardContent className="pt-0 pb-4 px-6">
-              <div className="space-y-2.5">
-                {insights.map((insight, index) => (
+            <div className="grid gap-2">
+              {insights.map((insight, index) => {
+                const style = typeStyles[insight.type] || typeStyles.info;
+                return (
                   <motion.div
                     key={index}
                     variants={itemVariants}
                     className={cn(
-                      'flex items-start gap-3 rounded-lg px-4 py-3',
-                      'border-l-[3px] transition-colors duration-200',
-                      borderColorMap[insight.type],
-                      bgColorMap[insight.type],
+                      'flex items-start gap-3 rounded-lg px-4 py-2.5',
+                      'border-l-[3px] transition-colors duration-150',
+                      style.border,
+                      style.bg,
                     )}
                   >
-                    <span className="text-lg leading-none mt-0.5 flex-shrink-0">
+                    <span className="text-base leading-none mt-0.5 shrink-0">
                       {insight.icon}
                     </span>
-                    <p className="text-sm leading-relaxed text-foreground/90">
+                    <p className="text-[13px] leading-relaxed text-foreground/85">
                       {insight.text}
                     </p>
                   </motion.div>
-                ))}
-              </div>
+                );
+              })}
+            </div>
 
-              {/* Footer */}
-              <p className="text-[11px] text-muted-foreground mt-4 text-right sm:hidden">
-                {generatedAt}
-              </p>
-            </CardContent>
+            {/* Mobile timestamp */}
+            <p className="text-[11px] text-muted-foreground mt-3 text-right sm:hidden">
+              {generatedAt}
+            </p>
           </motion.div>
         )}
       </AnimatePresence>
-    </Card>
+    </div>
   );
 }

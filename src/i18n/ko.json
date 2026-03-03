@@ -96,7 +96,7 @@
     "volatile": "변동"
   },
   "ai": {
-    "briefingTitle": "AI 인사이트",
-    "generatedAt": "생성 시각"
+    "briefingTitle": "주요 이슈 브리핑",
+    "generatedAt": "기준"
   }
 }
