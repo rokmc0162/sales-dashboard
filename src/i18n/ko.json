@@ -95,6 +95,19 @@
     "moderate": "보통",
     "volatile": "변동"
   },
+  "platform": {
+    "distribution": "매출 분산 현황",
+    "statusGood": "매출 분산 양호",
+    "statusCaution": "매출 편중 주의",
+    "statusWarning": "매출 편중 경고",
+    "msgGood": "플랫폼별 매출이 고르게 분산되어 있습니다.",
+    "msgCaution": "전체 매출의 {share}%가 {platform}에 집중되어 있습니다. 다각화를 검토하세요.",
+    "msgWarning": "전체 매출의 {share}%가 {platform}에 집중되어 있습니다. 리스크 관리가 필요합니다.",
+    "momChanges": "전월 대비 변동",
+    "shareTrend": "플랫폼 점유율 추이",
+    "shareTrendDesc": "각 플랫폼의 월별 매출 비중 변화",
+    "detail": "플랫폼 상세"
+  },
   "ai": {
     "briefingTitle": "주요 이슈 브리핑",
     "generatedAt": "기준"

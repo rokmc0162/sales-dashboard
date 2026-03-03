@@ -95,6 +95,19 @@
     "moderate": "普通",
     "volatile": "変動"
   },
+  "platform": {
+    "distribution": "売上分散状況",
+    "statusGood": "売上分散良好",
+    "statusCaution": "売上偏重注意",
+    "statusWarning": "売上偏重警告",
+    "msgGood": "プラットフォーム別売上が均等に分散されています。",
+    "msgCaution": "全体売上の{share}%が{platform}に集中しています。多角化を検討してください。",
+    "msgWarning": "全体売上の{share}%が{platform}に集中しています。リスク管理が必要です。",
+    "momChanges": "前月比変動",
+    "shareTrend": "PFシェア推移",
+    "shareTrendDesc": "各PFの月別売上比率変化",
+    "detail": "PF詳細"
+  },
   "ai": {
     "briefingTitle": "主要イシューブリーフィング",
     "generatedAt": "時点"

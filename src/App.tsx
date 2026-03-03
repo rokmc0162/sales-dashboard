@@ -24,9 +24,6 @@ const Trends = lazy(() =>
 const RawData = lazy(() =>
   import('./pages/RawData').then(m => ({ default: m.RawData })),
 );
-const PlatformDynamics = lazy(() =>
-  import('./pages/PlatformDynamics').then(m => ({ default: m.PlatformDynamics })),
-);
 const SalesStructure = lazy(() =>
   import('./pages/SalesStructure').then(m => ({ default: m.SalesStructure })),
 );
@@ -52,7 +49,7 @@ function App() {
               <Route path="/titles" element={<TitleAnalysis />} />
               <Route path="/platforms" element={<PlatformAnalysis />} />
               <Route path="/period" element={<PeriodAnalysis />} />
-              <Route path="/dynamics" element={<PlatformDynamics />} />
+              <Route path="/dynamics" element={<Navigate to="/platforms" replace />} />
               <Route path="/structure" element={<SalesStructure />} />
               <Route path="/trends" element={<Trends />} />
               <Route path="/data" element={<RawData />} />
