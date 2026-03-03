@@ -31,32 +31,25 @@ const navItems = [
 
 function RiverseLogo({ expanded }: { expanded: boolean }) {
   return (
-    <div className="flex items-center gap-3 overflow-hidden">
-      {/* Logo icon - always visible */}
-      <div className="flex items-center justify-center w-9 h-9 rounded-lg shrink-0 bg-primary">
-        <span className="text-white font-extrabold text-base leading-none">R</span>
-      </div>
-      {/* Full logo + subtitle - only when expanded */}
+    <div className="flex items-center gap-2.5 overflow-hidden">
+      {/* Riverse logo - always visible */}
+      <img
+        src="/riverse_logo.png"
+        alt="RIVERSE"
+        className="h-7 w-auto object-contain shrink-0"
+      />
+      {/* System title - only when expanded */}
       <AnimatePresence>
         {expanded && (
-          <motion.div
+          <motion.span
             initial={{ opacity: 0, width: 0 }}
             animate={{ opacity: 1, width: 'auto' }}
             exit={{ opacity: 0, width: 0 }}
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden whitespace-nowrap"
+            className="text-[15px] font-bold tracking-tight text-primary whitespace-nowrap overflow-hidden"
           >
-            <div className="flex flex-col gap-0.5">
-              <img
-                src="/riverse_logo.png"
-                alt="RIVERSE"
-                className="h-5 w-auto object-contain object-left"
-              />
-              <span className="text-[11px] font-medium tracking-wider text-text-muted">
-                매출 분석 -
-              </span>
-            </div>
-          </motion.div>
+            매출 현황 보드
+          </motion.span>
         )}
       </AnimatePresence>
     </div>
