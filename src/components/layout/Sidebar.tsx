@@ -46,7 +46,7 @@ function RiverseLogo({ expanded }: { expanded: boolean }) {
             animate={{ opacity: 1, width: 'auto' }}
             exit={{ opacity: 0, width: 0 }}
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="text-[30px] font-bold tracking-tight text-primary whitespace-nowrap overflow-hidden leading-none"
+            className="text-[18px] font-bold tracking-tight text-primary whitespace-nowrap overflow-hidden"
           >
             매출 현황 보드
           </motion.span>
