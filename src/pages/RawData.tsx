@@ -1,12 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useDataLoader } from '@/hooks/useDataLoader';
 import { useAppState } from '@/hooks/useAppState';
 import { t } from '@/i18n';
 import { formatSales } from '@/utils/formatters';
-import { filterByDateRange } from '@/utils/calculations';
 import { PlatformBadge } from '@/components/PlatformIcon';
 import { RawDataUploader } from '@/components/RawDataUploader';
+import { isSupabaseConfigured, fetchDailySalesPage, fetchAllDailySales } from '@/lib/supabase';
+import type { DailySale } from '@/types';
 import { staggerContainer, staggerItem } from '@/lib/constants';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -47,6 +48,47 @@ function LoadingSkeleton() {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Client-side helpers (used when data is uploaded / static JSON)      */
+/* ------------------------------------------------------------------ */
+
+function filterAndSort(
+  all: DailySale[],
+  platformFilter: string,
+  titleSearch: string,
+  startDate: string,
+  endDate: string,
+  sortKey: SortKey,
+  sortDir: SortDir,
+  language: string,
+) {
+  let result = all;
+  if (startDate) result = result.filter(d => d.date >= startDate);
+  if (endDate) result = result.filter(d => d.date <= endDate);
+  if (platformFilter) result = result.filter(d => d.channel === platformFilter);
+  if (titleSearch.trim()) {
+    const q = titleSearch.trim().toLowerCase();
+    result = result.filter(d =>
+      d.titleKR.toLowerCase().includes(q) || d.titleJP.toLowerCase().includes(q),
+    );
+  }
+  const sorted = [...result].sort((a, b) => {
+    let cmp = 0;
+    switch (sortKey) {
+      case 'date': cmp = a.date.localeCompare(b.date); break;
+      case 'title': cmp = (language === 'ko' ? a.titleKR : a.titleJP).localeCompare(language === 'ko' ? b.titleKR : b.titleJP); break;
+      case 'channel': cmp = a.channel.localeCompare(b.channel); break;
+      case 'sales': cmp = a.sales - b.sales; break;
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+  return sorted;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main component                                                     */
+/* ------------------------------------------------------------------ */
+
 export function RawData() {
   const data = useDataLoader();
   const { language, currency, exchangeRate } = useAppState();
@@ -60,79 +102,63 @@ export function RawData() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [rawUploaderOpen, setRawUploaderOpen] = useState(false);
 
-  // Extract unique platforms
-  const platforms = useMemo(() => {
-    const set = new Set<string>();
-    data.dailySales.forEach(d => set.add(d.channel));
-    return Array.from(set).sort();
-  }, [data.dailySales]);
+  // Server-side state (Supabase mode)
+  const [serverRows, setServerRows] = useState<DailySale[]>([]);
+  const [serverCount, setServerCount] = useState(0);
+  const [tableLoading, setTableLoading] = useState(false);
+  const [csvDownloading, setCsvDownloading] = useState(false);
+  const fetchIdRef = useRef(0); // prevent stale fetches
 
-  // Apply filters
-  const filteredData = useMemo(() => {
-    let result = data.dailySales;
+  // Are we using uploaded/static data (has dailySales in memory) or Supabase server-side?
+  const useServerMode = isSupabaseConfigured && !data.isUploaded && data.dailySales.length === 0;
 
-    // Date range filter
-    if (startDate && endDate) {
-      result = filterByDateRange(result, startDate, endDate);
-    } else if (startDate) {
-      result = result.filter(d => d.date >= startDate);
-    } else if (endDate) {
-      result = result.filter(d => d.date <= endDate);
-    }
+  // Platforms: from platformSummary (always available) or from in-memory dailySales
+  const platforms = useServerMode
+    ? data.platformSummary.map(p => p.platform).sort()
+    : [...new Set(data.dailySales.map(d => d.channel))].sort();
 
-    // Platform filter
-    if (platformFilter) {
-      result = result.filter(d => d.channel === platformFilter);
-    }
+  // Total sales (unfiltered): from platformSummary
+  const totalSalesAll = data.platformSummary.reduce((s, p) => s + p.totalSales, 0);
 
-    // Title search
-    if (titleSearch.trim()) {
-      const query = titleSearch.trim().toLowerCase();
-      result = result.filter(d =>
-        d.titleKR.toLowerCase().includes(query) ||
-        d.titleJP.toLowerCase().includes(query)
-      );
-    }
-
-    return result;
-  }, [data.dailySales, platformFilter, titleSearch, startDate, endDate]);
-
-  // Sort
-  const sortedData = useMemo(() => {
-    const sorted = [...filteredData].sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case 'date':
-          cmp = a.date.localeCompare(b.date);
-          break;
-        case 'title':
-          cmp = (language === 'ko' ? a.titleKR : a.titleJP).localeCompare(
-            language === 'ko' ? b.titleKR : b.titleJP,
-          );
-          break;
-        case 'channel':
-          cmp = a.channel.localeCompare(b.channel);
-          break;
-        case 'sales':
-          cmp = a.sales - b.sales;
-          break;
+  /* ---- Server-side fetch ---- */
+  const fetchPage = useCallback(async () => {
+    if (!useServerMode) return;
+    const id = ++fetchIdRef.current;
+    setTableLoading(true);
+    try {
+      const result = await fetchDailySalesPage({
+        page,
+        pageSize: PAGE_SIZE,
+        platform: platformFilter || undefined,
+        search: titleSearch.trim() || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        sortKey,
+        sortDir,
+      });
+      if (id === fetchIdRef.current) {
+        setServerRows(result.data);
+        setServerCount(result.count);
       }
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return sorted;
-  }, [filteredData, sortKey, sortDir, language]);
+    } finally {
+      if (id === fetchIdRef.current) setTableLoading(false);
+    }
+  }, [useServerMode, page, platformFilter, titleSearch, startDate, endDate, sortKey, sortDir]);
 
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(sortedData.length / PAGE_SIZE));
-  const pagedData = useMemo(() => {
-    const start = page * PAGE_SIZE;
-    return sortedData.slice(start, start + PAGE_SIZE);
-  }, [sortedData, page]);
+  useEffect(() => { fetchPage(); }, [fetchPage]);
 
-  // Summary
-  const totalFilteredSales = useMemo(() => {
-    return filteredData.reduce((s, d) => s + d.sales, 0);
-  }, [filteredData]);
+  /* ---- Client-side data (uploaded/static) ---- */
+  const clientSorted = useServerMode
+    ? []
+    : filterAndSort(data.dailySales, platformFilter, titleSearch, startDate, endDate, sortKey, sortDir, language);
+
+  // Unified row data
+  const pagedData = useServerMode
+    ? serverRows
+    : clientSorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const totalCount = useServerMode ? serverCount : clientSorted.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   // Sort handler
   const handleSort = (key: SortKey) => {
@@ -145,10 +171,28 @@ export function RawData() {
     setPage(0);
   };
 
-  // CSV download
-  const downloadCSV = () => {
+  // Reset page on filter change
+  const handleFilterChange = <T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: T) => {
+    setter(value);
+    setPage(0);
+  };
+
+  // CSV download (fetches all matching rows for server mode)
+  const downloadCSV = async () => {
+    let rows: DailySale[];
+    if (useServerMode) {
+      setCsvDownloading(true);
+      try {
+        rows = await fetchAllDailySales();
+      } finally {
+        setCsvDownloading(false);
+      }
+    } else {
+      rows = clientSorted;
+    }
+
     const header = [t(language, 'table.date'), t(language, 'table.title'), t(language, 'table.platform'), t(language, 'table.sales')];
-    const rows = sortedData.map(d => [
+    const csvRows = rows.map(d => [
       d.date,
       `"${(language === 'ko' ? d.titleKR : d.titleJP).replace(/"/g, '""')}"`,
       d.channel,
@@ -156,7 +200,7 @@ export function RawData() {
     ]);
 
     const bom = '\uFEFF';
-    const csv = bom + [header.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const csv = bom + [header.join(','), ...csvRows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -166,15 +210,9 @@ export function RawData() {
     URL.revokeObjectURL(url);
   };
 
-  // Reset page when filters change
-  const handleFilterChange = <T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: T) => {
-    setter(value);
-    setPage(0);
-  };
-
   const sortIcon = (key: SortKey) => {
-    if (sortKey !== key) return ' \u2195';
-    return sortDir === 'asc' ? ' \u2191' : ' \u2193';
+    if (sortKey !== key) return ' ↕';
+    return sortDir === 'asc' ? ' ↑' : ' ↓';
   };
 
   if (data.loading) {
@@ -266,7 +304,7 @@ export function RawData() {
         </Card>
       </motion.div>
 
-      {/* Summary row + CSV download */}
+      {/* Summary row + buttons */}
       <motion.div
         variants={staggerItem}
         className="flex flex-wrap items-center justify-between mb-5 gap-4"
@@ -275,18 +313,18 @@ export function RawData() {
           <span className="text-muted-foreground text-sm font-medium">
             {t(language, 'table.showing')}{' '}
             <span className="text-foreground font-bold text-[15px]">
-              {filteredData.length.toLocaleString()}
+              {totalCount.toLocaleString()}
             </span>{' '}
             {t(language, 'table.of')}{' '}
             <span className="text-foreground font-bold text-[15px]">
-              {data.dailySales.length.toLocaleString()}
+              {useServerMode ? serverCount.toLocaleString() : data.dailySales.length.toLocaleString()}
             </span>
           </span>
           <span className="text-border text-lg">|</span>
           <span className="text-muted-foreground text-sm font-medium">
             {t(language, 'table.sales')}:{' '}
             <span className="text-foreground font-bold text-[15px]">
-              {formatSales(totalFilteredSales, currency, exchangeRate, language)}
+              {formatSales(totalSalesAll, currency, exchangeRate, language)}
             </span>
           </span>
         </div>
@@ -304,13 +342,20 @@ export function RawData() {
           </Button>
           <Button
             onClick={downloadCSV}
+            disabled={csvDownloading}
             className="gap-2.5 px-5 rounded-xl font-semibold shadow-[0_2px_8px_rgba(37,99,235,0.25)] hover:shadow-lg"
           >
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
+            {csvDownloading ? (
+              <svg className="animate-spin" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" strokeDasharray="60" strokeDashoffset="20" />
+              </svg>
+            ) : (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            )}
             {t(language, 'table.download')}
           </Button>
         </div>
@@ -319,7 +364,19 @@ export function RawData() {
       {/* Data table */}
       <motion.div variants={staggerItem}>
         <Card variant="glass">
-          <CardContent className="p-0">
+          <CardContent className="p-0 relative">
+            {/* Loading overlay for server fetch */}
+            {tableLoading && (
+              <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] z-10 flex items-center justify-center">
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="12" cy="12" r="10" strokeDasharray="60" strokeDashoffset="20" />
+                  </svg>
+                  <span className="text-sm font-medium">{language === 'ko' ? '로딩 중...' : '読み込み中...'}</span>
+                </div>
+              </div>
+            )}
+
             <Table className="text-sm">
               <TableHeader>
                 <TableRow className="bg-background border-b-2 border-border hover:bg-background">
@@ -350,7 +407,7 @@ export function RawData() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pagedData.length === 0 ? (
+                {pagedData.length === 0 && !tableLoading ? (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center py-16 text-text-muted text-[15px]">
                       {language === 'ko' ? '데이터가 없습니다' : 'データがありません'}
@@ -384,8 +441,8 @@ export function RawData() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between py-4 px-5 border-t border-border bg-background">
                 <span className="text-muted-foreground text-[13px] font-medium">
-                  {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, sortedData.length)}{' '}
-                  / {sortedData.length.toLocaleString()}
+                  {page * PAGE_SIZE + 1}~{Math.min((page + 1) * PAGE_SIZE, totalCount)}{' '}
+                  / {totalCount.toLocaleString()}
                 </span>
                 <div className="flex items-center gap-2">
                   <Button

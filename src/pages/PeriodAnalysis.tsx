@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useDataLoader } from '@/hooks/useDataLoader';
 import { useAppState } from '@/hooks/useAppState';
+import { isSupabaseConfigured, fetchAllDailySales } from '@/lib/supabase';
+import type { DailySale } from '@/types';
 import { t } from '@/i18n';
 import { formatSales, formatSalesShort, formatPercent } from '@/utils/formatters';
 import { filterByDateRange, groupByMonth, groupByWeek } from '@/utils/calculations';
@@ -55,12 +57,40 @@ export function PeriodAnalysis() {
   const data = useDataLoader();
   const { language, currency, exchangeRate } = useAppState();
 
+  // Lazy-load dailySales from Supabase (not fetched during initial load for speed)
+  const [localDailySales, setLocalDailySales] = useState<DailySale[]>(data.dailySales);
+  const [loadingDaily, setLoadingDaily] = useState(false);
+  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    // If uploaded data exists, use it directly
+    if (data.isUploaded || data.dailySales.length > 0) {
+      setLocalDailySales(data.dailySales);
+      fetchedRef.current = true;
+      return;
+    }
+    // Fetch from Supabase once
+    if (isSupabaseConfigured && !fetchedRef.current) {
+      fetchedRef.current = true;
+      setLoadingDaily(true);
+      fetchAllDailySales().then(rows => {
+        setLocalDailySales(rows);
+        setLoadingDaily(false);
+      });
+    }
+  }, [data.isUploaded, data.dailySales]);
+
+  // Show skeleton while loading dailySales
+  if (data.loading || loadingDaily) {
+    return <LoadingSkeleton />;
+  }
+
   // Compute data boundaries
   const dateBounds = useMemo(() => {
-    if (data.dailySales.length === 0) return { min: '2025-03-01', max: '2026-02-22' };
-    const dates = data.dailySales.map(d => d.date).sort();
+    if (localDailySales.length === 0) return { min: '2025-03-01', max: '2026-02-22' };
+    const dates = localDailySales.map(d => d.date).sort();
     return { min: dates[0], max: dates[dates.length - 1] };
-  }, [data.dailySales]);
+  }, [localDailySales]);
 
   const [startDate, setStartDate] = useState(dateBounds.min);
   const [endDate, setEndDate] = useState(dateBounds.max);
@@ -82,8 +112,8 @@ export function PeriodAnalysis() {
 
   // Filtered data for selected period
   const filteredData = useMemo(() => {
-    return filterByDateRange(data.dailySales, startDate, endDate);
-  }, [data.dailySales, startDate, endDate]);
+    return filterByDateRange(localDailySales, startDate, endDate);
+  }, [localDailySales, startDate, endDate]);
 
   // Previous period data (same duration, immediately before)
   const prevPeriodData = useMemo(() => {
@@ -93,11 +123,11 @@ export function PeriodAnalysis() {
     const prevEnd = new Date(startMs - 86400000);
     const prevStart = new Date(prevEnd.getTime() - durationMs);
     return filterByDateRange(
-      data.dailySales,
+      localDailySales,
       prevStart.toISOString().substring(0, 10),
       prevEnd.toISOString().substring(0, 10),
     );
-  }, [data.dailySales, startDate, endDate]);
+  }, [localDailySales, startDate, endDate]);
 
   // KPI calculations
   const kpis = useMemo(() => {
@@ -158,10 +188,6 @@ export function PeriodAnalysis() {
     }
     return result;
   }, [filteredData, prevPeriodData]);
-
-  if (data.loading) {
-    return <LoadingSkeleton />;
-  }
 
   const granularityOptions: { key: Granularity; label: string }[] = [
     { key: 'daily', label: t(language, 'period.daily') },

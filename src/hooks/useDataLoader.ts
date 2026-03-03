@@ -103,7 +103,8 @@ export function useDataLoader(): DashboardData {
         // Try Supabase first
         if (isSupabaseConfigured) {
           const supaData = await fetchActiveDataset();
-          if (!cancelled && supaData && supaData.dailySales.length > 0) {
+          // dailySales is now loaded on-demand (lazy); check summaries instead
+          if (!cancelled && supaData && supaData.titleSummary.length > 0) {
             setStaticData({ data: supaData, loading: false, error: null });
             return;
           }

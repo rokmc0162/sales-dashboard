@@ -103,7 +103,18 @@ async function fetchAllRows<T>(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Read: fetch active dataset                                         */
+/*  Cached active dataset ID (set during fetchActiveDataset)            */
+/* ------------------------------------------------------------------ */
+
+let _activeDatasetId: string | null = null;
+
+/** Return the cached active dataset ID (set after first fetchActiveDataset call) */
+export function getActiveDatasetId(): string | null {
+  return _activeDatasetId;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Read: fetch active dataset (summaries only — dailySales lazy)       */
 /* ------------------------------------------------------------------ */
 
 export async function fetchActiveDataset(): Promise<ConvertedData | null> {
@@ -120,18 +131,11 @@ export async function fetchActiveDataset(): Promise<ConvertedData | null> {
 
   if (!dataset) return null;
   const dsId = dataset.id as string;
+  _activeDatasetId = dsId;
 
-  // 2. Fetch all 5 tables in parallel
-  //    daily_sales uses paginated fetch (can exceed 1 000-row Supabase limit)
-  const [dailyRows, monthlyRes, titleRes, platformRes, masterRes] =
+  // 2. Fetch summary tables only (daily_sales loaded on-demand for speed)
+  const [monthlyRes, titleRes, platformRes, masterRes] =
     await Promise.all([
-      fetchAllRows<DbDailySale>(
-        'daily_sales',
-        'title_kr, title_jp, channel, date, sales',
-        dsId,
-        'date',
-        true,
-      ),
       supabase
         .from('monthly_summary')
         .select('month, total_sales, platforms')
@@ -153,14 +157,8 @@ export async function fetchActiveDataset(): Promise<ConvertedData | null> {
         .eq('dataset_id', dsId),
     ]);
 
-  // 3. Map snake_case → camelCase
-  const dailySales: DailySale[] = dailyRows.map((r) => ({
-    titleKR: r.title_kr,
-    titleJP: r.title_jp,
-    channel: r.channel,
-    date: r.date,
-    sales: r.sales,
-  }));
+  // 3. Map snake_case → camelCase (dailySales left empty — loaded on-demand)
+  const dailySales: DailySale[] = [];
 
   const monthlySummary: MonthlySummary[] = ((monthlyRes.data ?? []) as DbMonthlySummary[]).map((r) => ({
     month: r.month,
@@ -198,6 +196,96 @@ export async function fetchActiveDataset(): Promise<ConvertedData | null> {
   }));
 
   return { dailySales, monthlySummary, titleSummary, platformSummary, titleMaster };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Read: paginated daily_sales (server-side filter/sort)               */
+/* ------------------------------------------------------------------ */
+
+export interface DailySalesPageParams {
+  page: number;
+  pageSize: number;
+  platform?: string;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+  sortKey?: 'date' | 'title' | 'channel' | 'sales';
+  sortDir?: 'asc' | 'desc';
+}
+
+export async function fetchDailySalesPage(
+  params: DailySalesPageParams,
+): Promise<{ data: DailySale[]; count: number }> {
+  if (!supabase || !_activeDatasetId) return { data: [], count: 0 };
+
+  const {
+    page, pageSize,
+    platform, search, startDate, endDate,
+    sortKey = 'date', sortDir = 'desc',
+  } = params;
+
+  // Map UI sort keys to DB columns
+  const orderCol =
+    sortKey === 'title' ? 'title_kr' :
+    sortKey === 'channel' ? 'channel' :
+    sortKey === 'sales' ? 'sales' : 'date';
+
+  let query = supabase
+    .from('daily_sales')
+    .select('title_kr, title_jp, channel, date, sales', { count: 'exact' })
+    .eq('dataset_id', _activeDatasetId);
+
+  // Filters
+  if (platform) query = query.eq('channel', platform);
+  if (startDate) query = query.gte('date', startDate);
+  if (endDate) query = query.lte('date', endDate);
+  if (search) {
+    query = query.or(`title_kr.ilike.%${search}%,title_jp.ilike.%${search}%`);
+  }
+
+  // Sort + pagination
+  query = query
+    .order(orderCol, { ascending: sortDir === 'asc' })
+    .range(page * pageSize, (page + 1) * pageSize - 1);
+
+  const { data, count, error } = await query;
+
+  if (error || !data) return { data: [], count: 0 };
+
+  const mapped: DailySale[] = (data as DbDailySale[]).map((r) => ({
+    titleKR: r.title_kr,
+    titleJP: r.title_jp,
+    channel: r.channel,
+    date: r.date,
+    sales: r.sales,
+  }));
+
+  return { data: mapped, count: count ?? 0 };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Read: fetch ALL daily_sales (for PeriodAnalysis, CSV, uploads)      */
+/* ------------------------------------------------------------------ */
+
+export async function fetchAllDailySales(dsId?: string): Promise<DailySale[]> {
+  const id = dsId ?? _activeDatasetId;
+  if (!supabase || !id) return [];
+
+  const rows = await fetchAllRows<DbDailySale>(
+    'daily_sales',
+    'title_kr, title_jp, channel, date, sales',
+    id,
+    'date',
+    true,
+  );
+
+  return rows.map((r) => ({
+    titleKR: r.title_kr,
+    titleJP: r.title_jp,
+    channel: r.channel,
+    date: r.date,
+    sales: r.sales,
+  }));
 }
 
 /* ------------------------------------------------------------------ */
