@@ -1,9 +1,7 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { useDataLoader } from '@/hooks/useDataLoader';
+import { useDataLoader, useDailySales } from '@/hooks/useDataLoader';
 import { useAppState } from '@/hooks/useAppState';
-import { isSupabaseConfigured, fetchAllDailySales } from '@/lib/supabase';
-import type { DailySale } from '@/types';
 import { t } from '@/i18n';
 import { formatSales, formatSalesShort, formatPercent } from '@/utils/formatters';
 import { filterByDateRange, groupByMonth, groupByWeek } from '@/utils/calculations';
@@ -55,33 +53,11 @@ function LoadingSkeleton() {
 
 export function PeriodAnalysis() {
   const data = useDataLoader();
+  const { dailySales: localDailySales, loading: dailyLoading } = useDailySales(data);
   const { language, currency, exchangeRate } = useAppState();
 
-  // Lazy-load dailySales from Supabase (not fetched during initial load for speed)
-  const [localDailySales, setLocalDailySales] = useState<DailySale[]>(data.dailySales);
-  const [loadingDaily, setLoadingDaily] = useState(false);
-  const fetchedRef = useRef(false);
-
-  useEffect(() => {
-    // If uploaded data exists, use it directly
-    if (data.isUploaded || data.dailySales.length > 0) {
-      setLocalDailySales(data.dailySales);
-      fetchedRef.current = true;
-      return;
-    }
-    // Fetch from Supabase once
-    if (isSupabaseConfigured && !fetchedRef.current) {
-      fetchedRef.current = true;
-      setLoadingDaily(true);
-      fetchAllDailySales().then(rows => {
-        setLocalDailySales(rows);
-        setLoadingDaily(false);
-      });
-    }
-  }, [data.isUploaded, data.dailySales]);
-
-  // Show skeleton while loading dailySales
-  if (data.loading || loadingDaily) {
+  // Show skeleton while loading
+  if (dailyLoading) {
     return <LoadingSkeleton />;
   }
 

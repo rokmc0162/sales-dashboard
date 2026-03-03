@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { useDataLoader } from '@/hooks/useDataLoader';
+import { useDataLoader, useDailySales } from '@/hooks/useDataLoader';
 import { useAppState } from '@/hooks/useAppState';
 import { t } from '@/i18n';
 import { formatSales, formatSalesShort, formatPercent, getChangeColor } from '@/utils/formatters';
@@ -54,6 +54,7 @@ function LoadingSkeleton() {
 
 export function Trends() {
   const data = useDataLoader();
+  const { dailySales, loading: dailyLoading } = useDailySales(data);
   const { language, currency, exchangeRate } = useAppState();
 
   // Growth TOP 10
@@ -72,9 +73,9 @@ export function Trends() {
 
   // New title performance: titles that first appeared in last 60 days of data range
   const newTitlePerformance = useMemo(() => {
-    if (data.dailySales.length === 0 || data.titleSummary.length === 0) return [];
+    if (dailySales.length === 0 || data.titleSummary.length === 0) return [];
 
-    const allDates = data.dailySales.map(d => d.date).sort();
+    const allDates = dailySales.map(d => d.date).sort();
     const latestDate = allDates[allDates.length - 1];
     const cutoff = new Date(latestDate);
     cutoff.setDate(cutoff.getDate() - 60);
@@ -89,13 +90,13 @@ export function Trends() {
         totalSales: ts.totalSales,
       }))
       .sort((a, b) => b.totalSales - a.totalSales);
-  }, [data.dailySales, data.titleSummary]);
+  }, [dailySales, data.titleSummary]);
 
   // Weekday pattern
   const weekdayData = useMemo(() => {
-    if (data.dailySales.length === 0) return [];
-    return calcWeekdayPattern(data.dailySales);
-  }, [data.dailySales]);
+    if (dailySales.length === 0) return [];
+    return calcWeekdayPattern(dailySales);
+  }, [dailySales]);
 
   const bestDay = useMemo(() => {
     if (weekdayData.length === 0) return -1;
@@ -106,7 +107,7 @@ export function Trends() {
     return maxIdx;
   }, [weekdayData]);
 
-  if (data.loading) {
+  if (dailyLoading) {
     return <LoadingSkeleton />;
   }
 

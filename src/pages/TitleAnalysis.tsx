@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, TrendingUp, TrendingDown, Minus, BarChart3 } from 'lucide-react';
-import { useDataLoader } from '@/hooks/useDataLoader';
+import { useDataLoader, useDailySales } from '@/hooks/useDataLoader';
 import { useAppState } from '@/hooks/useAppState';
 import { t } from '@/i18n';
 import { formatSales, formatSalesShort, formatPercent, getChangeColor } from '@/utils/formatters';
@@ -74,6 +74,7 @@ function LoadingSkeleton() {
 export function TitleAnalysis() {
   const { language, currency, exchangeRate } = useAppState();
   const data = useDataLoader();
+  const { dailySales, loading: dailyLoading } = useDailySales(data);
 
   const [search, setSearch] = useState('');
   const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
@@ -161,7 +162,7 @@ export function TitleAnalysis() {
   const weeklyPlatformTrend = useMemo(() => {
     if (!activeTitleKey) return { data: [] as Record<string, string | number>[], platforms: [] as string[] };
 
-    const titleSales = data.dailySales.filter(d => d.titleKR === activeTitleKey);
+    const titleSales = dailySales.filter(d => d.titleKR === activeTitleKey);
 
     const platformSet = new Set<string>();
     titleSales.forEach(d => platformSet.add(d.channel));
@@ -194,13 +195,13 @@ export function TitleAnalysis() {
     });
 
     return { data: chartData, platforms };
-  }, [data.dailySales, activeTitleKey]);
+  }, [dailySales, activeTitleKey]);
 
   // Per-platform growth for selected title
   const platformGrowths = useMemo(() => {
     if (!activeTitleKey || !selectedTitleData) return new Map<string, number>();
 
-    const titleSales = data.dailySales.filter(d => d.titleKR === activeTitleKey);
+    const titleSales = dailySales.filter(d => d.titleKR === activeTitleKey);
     const map = new Map<string, number>();
 
     selectedTitleData.platforms.forEach(p => {
@@ -219,15 +220,15 @@ export function TitleAnalysis() {
     });
 
     return map;
-  }, [data.dailySales, activeTitleKey, selectedTitleData]);
+  }, [dailySales, activeTitleKey, selectedTitleData]);
 
   const titleName = (ts: { titleKR: string; titleJP: string }) =>
     language === 'ko' ? ts.titleKR : ts.titleJP;
 
   // ---------------------------------------------------------------------------
-  // Loading
+  // Loading — wait for both summaries and dailySales
   // ---------------------------------------------------------------------------
-  if (data.loading) {
+  if (data.loading || dailyLoading) {
     return <LoadingSkeleton />;
   }
 

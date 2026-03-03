@@ -1,7 +1,13 @@
-import { useState, useEffect, useSyncExternalStore } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { DailySale, MonthlySummary, TitleSummary, PlatformSummary, TitleMaster } from '../types';
 import type { ConvertedData } from '@/utils/excelConverter';
-import { isSupabaseConfigured, fetchActiveDataset } from '@/lib/supabase';
+import {
+  isSupabaseConfigured,
+  fetchActiveDataset,
+  fetchAllDailySales,
+  getCachedDailySales,
+  clearSupabaseCache,
+} from '@/lib/supabase';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -73,21 +79,35 @@ export function hasUploadedData(): boolean {
 
 /** Clear uploaded data and revert to static files */
 export function clearUploadedData() {
+  clearSupabaseCache();
   setUploadedData(null);
 }
 
 /* ------------------------------------------------------------------ */
-/*  Hook                                                               */
+/*  Module-level Supabase data cache                                   */
+/*  Prevents re-fetching on every page navigation.                     */
+/* ------------------------------------------------------------------ */
+
+type SummaryData = Omit<DashboardData, 'loading' | 'error' | 'isUploaded'>;
+let _supabaseCache: SummaryData | null = null;
+
+/* ------------------------------------------------------------------ */
+/*  useDataLoader — main hook                                          */
 /* ------------------------------------------------------------------ */
 
 export function useDataLoader(): DashboardData {
   const uploaded = useSyncExternalStore(subscribe, getSnapshot);
 
+  // Initialize from cache — prevents loading flicker on page navigation
   const [staticData, setStaticData] = useState<{
-    data: Omit<DashboardData, 'loading' | 'error' | 'isUploaded'> | null;
+    data: SummaryData | null;
     loading: boolean;
     error: string | null;
-  }>({ data: null, loading: true, error: null });
+  }>(() => ({
+    data: _supabaseCache,
+    loading: !uploaded && _supabaseCache === null,
+    error: null,
+  }));
 
   // Fetch data: Supabase first → static JSON fallback
   useEffect(() => {
@@ -97,14 +117,21 @@ export function useDataLoader(): DashboardData {
       return;
     }
 
+    // Cache hit — no network needed
+    if (_supabaseCache) {
+      setStaticData({ data: _supabaseCache, loading: false, error: null });
+      return;
+    }
+
     let cancelled = false;
     async function load() {
       try {
         // Try Supabase first
         if (isSupabaseConfigured) {
           const supaData = await fetchActiveDataset();
-          // dailySales is now loaded on-demand (lazy); check summaries instead
+          // dailySales is loaded on-demand (lazy); check summaries instead
           if (!cancelled && supaData && supaData.titleSummary.length > 0) {
+            _supabaseCache = supaData;
             setStaticData({ data: supaData, loading: false, error: null });
             return;
           }
@@ -164,5 +191,61 @@ export function useDataLoader(): DashboardData {
     loading: staticData.loading,
     error: staticData.error,
     isUploaded: false,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  useDailySales — lazy-load hook for pages needing daily_sales       */
+/*  Uses parallel fetch + module cache + promise dedup.                */
+/* ------------------------------------------------------------------ */
+
+export function useDailySales(data: DashboardData): {
+  dailySales: DailySale[];
+  loading: boolean;
+} {
+  const hasClientData = data.isUploaded || data.dailySales.length > 0;
+
+  // Initialize from best available source (no loading flicker if cached)
+  const [state, setState] = useState<{ rows: DailySale[]; fetching: boolean }>(() => {
+    if (hasClientData) return { rows: data.dailySales, fetching: false };
+    const cached = getCachedDailySales();
+    if (cached) return { rows: cached, fetching: false };
+    return { rows: [], fetching: !data.loading };
+  });
+
+  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    // Wait for main data to finish loading
+    if (data.loading) return;
+
+    // Client data (uploaded or static JSON) — use directly
+    if (hasClientData) {
+      setState({ rows: data.dailySales, fetching: false });
+      fetchedRef.current = true;
+      return;
+    }
+
+    // Already cached in memory
+    const cached = getCachedDailySales();
+    if (cached) {
+      setState({ rows: cached, fetching: false });
+      fetchedRef.current = true;
+      return;
+    }
+
+    // Fetch from Supabase (parallel, with dedup + cache in supabase.ts)
+    if (isSupabaseConfigured && !fetchedRef.current) {
+      fetchedRef.current = true;
+      setState(prev => ({ ...prev, fetching: true }));
+      fetchAllDailySales().then(rows => {
+        setState({ rows, fetching: false });
+      });
+    }
+  }, [data.loading, data.isUploaded, data.dailySales.length]);
+
+  return {
+    dailySales: state.rows,
+    loading: data.loading || state.fetching,
   };
 }

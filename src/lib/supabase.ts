@@ -70,47 +70,30 @@ interface DbTitleMaster {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Helper: paginated fetch (Supabase caps at 1 000 rows per request)  */
-/* ------------------------------------------------------------------ */
-
-async function fetchAllRows<T>(
-  table: string,
-  select: string,
-  dsId: string,
-  orderCol: string,
-  ascending: boolean,
-): Promise<T[]> {
-  if (!supabase) return [];
-  const PAGE_SIZE = 1000;
-  const allRows: T[] = [];
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from(table)
-      .select(select)
-      .eq('dataset_id', dsId)
-      .order(orderCol, { ascending })
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error || !data || data.length === 0) break;
-    allRows.push(...(data as T[]));
-    if (data.length < PAGE_SIZE) break; // last page
-    from += PAGE_SIZE;
-  }
-
-  return allRows;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Cached active dataset ID (set during fetchActiveDataset)            */
+/*  Module-level caches                                                */
 /* ------------------------------------------------------------------ */
 
 let _activeDatasetId: string | null = null;
+let _activeDatasetCache: ConvertedData | null = null;
+let _dailySalesCache: DailySale[] | null = null;
+let _dailySalesPromise: Promise<DailySale[]> | null = null;
 
-/** Return the cached active dataset ID (set after first fetchActiveDataset call) */
+/** Return the cached active dataset ID */
 export function getActiveDatasetId(): string | null {
   return _activeDatasetId;
+}
+
+/** Return cached dailySales (for initializing state without loading flicker) */
+export function getCachedDailySales(): DailySale[] | null {
+  return _dailySalesCache;
+}
+
+/** Clear all caches (call after uploading new dataset) */
+export function clearSupabaseCache() {
+  _activeDatasetId = null;
+  _activeDatasetCache = null;
+  _dailySalesCache = null;
+  _dailySalesPromise = null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -119,6 +102,9 @@ export function getActiveDatasetId(): string | null {
 
 export async function fetchActiveDataset(): Promise<ConvertedData | null> {
   if (!supabase) return null;
+
+  // Return from cache (instant on page navigation)
+  if (_activeDatasetCache) return _activeDatasetCache;
 
   // 1. Get active dataset ID
   const { data: dataset } = await supabase
@@ -195,7 +181,9 @@ export async function fetchActiveDataset(): Promise<ConvertedData | null> {
     platforms: r.platforms,
   }));
 
-  return { dailySales, monthlySummary, titleSummary, platformSummary, titleMaster };
+  const result = { dailySales, monthlySummary, titleSummary, platformSummary, titleMaster };
+  _activeDatasetCache = result;
+  return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -271,21 +259,75 @@ export async function fetchAllDailySales(dsId?: string): Promise<DailySale[]> {
   const id = dsId ?? _activeDatasetId;
   if (!supabase || !id) return [];
 
-  const rows = await fetchAllRows<DbDailySale>(
-    'daily_sales',
-    'title_kr, title_jp, channel, date, sales',
-    id,
-    'date',
-    true,
+  // Return from cache (instant after first load)
+  if (_dailySalesCache && !dsId) return _dailySalesCache;
+
+  // Dedup: if already fetching, return the same promise
+  if (_dailySalesPromise && !dsId) return _dailySalesPromise;
+
+  const promise = _fetchDailySalesParallel(id);
+  if (!dsId) _dailySalesPromise = promise;
+
+  try {
+    const result = await promise;
+    if (!dsId) {
+      _dailySalesCache = result;
+      _dailySalesPromise = null;
+    }
+    return result;
+  } catch {
+    if (!dsId) _dailySalesPromise = null;
+    return [];
+  }
+}
+
+/**
+ * Parallel fetch: get count first, then fetch all pages simultaneously.
+ * 75 sequential requests (~30s) → 75 parallel requests (~2-3s)
+ */
+async function _fetchDailySalesParallel(dsId: string): Promise<DailySale[]> {
+  if (!supabase) return [];
+
+  // 1. Get total count (HEAD request — very fast)
+  const { count } = await supabase
+    .from('daily_sales')
+    .select('*', { count: 'exact', head: true })
+    .eq('dataset_id', dsId);
+
+  if (!count || count === 0) return [];
+
+  // 2. Build all page requests
+  const PAGE_SIZE = 1000;
+  const numPages = Math.ceil(count / PAGE_SIZE);
+
+  const promises = Array.from({ length: numPages }, (_, i) =>
+    supabase!
+      .from('daily_sales')
+      .select('title_kr, title_jp, channel, date, sales')
+      .eq('dataset_id', dsId)
+      .order('date', { ascending: true })
+      .range(i * PAGE_SIZE, (i + 1) * PAGE_SIZE - 1),
   );
 
-  return rows.map((r) => ({
-    titleKR: r.title_kr,
-    titleJP: r.title_jp,
-    channel: r.channel,
-    date: r.date,
-    sales: r.sales,
-  }));
+  // 3. Execute ALL pages in parallel
+  const results = await Promise.all(promises);
+
+  // 4. Combine results
+  const all: DailySale[] = [];
+  for (const { data, error } of results) {
+    if (!error && data) {
+      for (const r of data as DbDailySale[]) {
+        all.push({
+          titleKR: r.title_kr,
+          titleJP: r.title_jp,
+          channel: r.channel,
+          date: r.date,
+          sales: r.sales,
+        });
+      }
+    }
+  }
+  return all;
 }
 
 /* ------------------------------------------------------------------ */
@@ -389,6 +431,9 @@ export async function uploadDatasetToSupabase(
       .from('datasets')
       .update({ is_active: true })
       .eq('id', dsId);
+
+    // 5. Clear caches so next load picks up new data
+    clearSupabaseCache();
 
     return { success: true };
   } catch (err) {
