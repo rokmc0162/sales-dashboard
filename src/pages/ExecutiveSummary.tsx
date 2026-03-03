@@ -342,8 +342,9 @@ export function ExecutiveSummary() {
                     tickLine={false} tickFormatter={(v: number) => fmt(v)} />
                   <YAxis type="category" dataKey="name" tick={{ fill: '#334155', fontSize: 13, fontWeight: 500 }}
                     axisLine={false} tickLine={false} width={160} />
-                  <Tooltip content={<BarChartTooltip formatter={fmt} />} />
-                  <Bar dataKey="sales" fill="url(#barGradient)" radius={[0, 8, 8, 0]} barSize={32} />
+                  <Tooltip content={<BarChartTooltip formatter={fmt} />} cursor={false} />
+                  <Bar dataKey="sales" fill="url(#barGradient)" radius={[0, 8, 8, 0]} barSize={32}
+                    activeBar={{ fillOpacity: 0.85, stroke: '#6366F1', strokeWidth: 1.5 }} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
