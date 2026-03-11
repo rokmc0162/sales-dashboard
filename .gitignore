@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Unused raw icon sources
+icon/
+
+# Windows artifacts
+nul
