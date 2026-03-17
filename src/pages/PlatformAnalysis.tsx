@@ -482,8 +482,13 @@ export function PlatformAnalysis() {
                         <TableCell className="font-mono text-sm text-text-muted">
                           {idx + 1}
                         </TableCell>
-                        <TableCell className="font-semibold text-[15px] text-foreground">
-                          {language === 'ko' ? title.titleKR : title.titleJP}
+                        <TableCell className="font-semibold text-foreground">
+                          <div className="text-[15px]">{language === 'ko' ? title.titleKR : title.titleJP}</div>
+                          {title.titleKR !== title.titleJP && (
+                            <div className="text-[11px] text-muted-foreground font-normal mt-0.5 truncate max-w-[260px]">
+                              {language === 'ko' ? title.titleJP : title.titleKR}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm font-semibold text-foreground">
                           {formatSales(title.sales, currency, exchangeRate, language)}

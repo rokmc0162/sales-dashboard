@@ -408,8 +408,13 @@ export function RawData() {
                       <TableCell className="py-3 px-5 font-medium text-muted-foreground">
                         {row.date}
                       </TableCell>
-                      <TableCell className="py-3 px-5 max-w-[300px] truncate font-medium text-foreground">
-                        {language === 'ko' ? row.titleKR : row.titleJP}
+                      <TableCell className="py-3 px-5 max-w-[300px] font-medium text-foreground">
+                        <div className="truncate">{language === 'ko' ? row.titleKR : row.titleJP}</div>
+                        {row.titleKR !== row.titleJP && (
+                          <div className="text-[10px] text-muted-foreground font-normal truncate">
+                            {language === 'ko' ? row.titleJP : row.titleKR}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="py-3 px-5">
                         <PlatformBadge name={row.channel} compact />

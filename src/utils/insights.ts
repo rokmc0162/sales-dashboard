@@ -144,8 +144,11 @@ export function generateInsights(
     });
 
     for (const title of newHighPerformers) {
-      const displayTitle =
-        language === 'ko' ? title.titleKR : title.titleJP;
+      const primaryTitle = language === 'ko' ? title.titleKR : title.titleJP;
+      const secondaryTitle = language === 'ko' ? title.titleJP : title.titleKR;
+      const displayTitle = primaryTitle !== secondaryTitle
+        ? `${primaryTitle} / ${secondaryTitle}`
+        : primaryTitle;
       const avg = Math.round(title.dailyAvg).toLocaleString();
       insights.push({
         icon: '\u2B50',
@@ -195,6 +198,10 @@ export function generateInsights(
       type,
     });
   }
+
+  // Sort by priority: warning first, then success, then info
+  const priority: Record<string, number> = { warning: 0, success: 1, info: 2 };
+  insights.sort((a, b) => (priority[a.type] ?? 3) - (priority[b.type] ?? 3));
 
   return insights;
 }

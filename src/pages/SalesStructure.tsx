@@ -94,6 +94,8 @@ export function SalesStructure() {
 
   const titleName = (item: { titleKR: string; titleJP: string }) =>
     language === 'ko' ? item.titleKR : item.titleJP;
+  const secondaryName = (item: { titleKR: string; titleJP: string }) =>
+    language === 'ko' ? item.titleJP : item.titleKR;
 
   // -----------------------------------------------------------------------
   // 1. Title Concentration (Top 10 donut)
@@ -393,8 +395,11 @@ export function SalesStructure() {
                       <TableCell className="font-mono text-sm text-muted-foreground">
                         {idx + 1}
                       </TableCell>
-                      <TableCell className="font-semibold text-[13px] text-foreground max-w-[200px] truncate">
-                        {titleName(item)}
+                      <TableCell className="font-semibold text-foreground max-w-[200px]">
+                        <div className="text-[13px] truncate">{titleName(item)}</div>
+                        {item.titleKR !== item.titleJP && (
+                          <div className="text-[10px] text-muted-foreground font-normal truncate">{secondaryName(item)}</div>
+                        )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold text-foreground">
                         {formatSales(item.totalSales, currency, exchangeRate, language)}
@@ -485,10 +490,13 @@ export function SalesStructure() {
                       className={`flex items-center ${rowIdx % 2 === 0 ? 'bg-card' : 'bg-background'}`}
                     >
                       <div
-                        className="w-40 flex-shrink-0 text-xs font-medium text-foreground p-1.5 truncate"
-                        title={titleName(title)}
+                        className="w-40 flex-shrink-0 text-xs font-medium text-foreground p-1.5"
+                        title={`${titleName(title)} / ${secondaryName(title)}`}
                       >
-                        {titleName(title)}
+                        <div className="truncate">{titleName(title)}</div>
+                        {title.titleKR !== title.titleJP && (
+                          <div className="text-[9px] text-muted-foreground font-normal truncate">{secondaryName(title)}</div>
+                        )}
                       </div>
                       {heatmapData.months.map(month => {
                         const sales = monthMap?.get(month) ?? 0;

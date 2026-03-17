@@ -8,13 +8,16 @@
     "trends": "트렌드",
     "rawData": "데이터",
     "dynamics": "플랫폼 다이나믹스",
-    "structure": "매출 구조 분석"
+    "structure": "매출 구조 분석",
+    "titleManagement": "작품 관리"
   },
   "kpi": {
     "totalSales": "총 누적매출",
     "currentMonth": "이번 달 매출",
     "momChange": "전월 대비",
-    "activeTitles": "활성 작품 수"
+    "activeTitles": "활성 작품 수",
+    "exclusive": "독점",
+    "nonExclusive": "비독점"
   },
   "chart": {
     "monthlySales": "월별 매출 추이",

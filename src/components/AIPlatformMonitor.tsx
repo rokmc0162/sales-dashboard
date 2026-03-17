@@ -86,7 +86,7 @@ export function AIPlatformMonitor({
   titleSummary,
   language,
 }: AIPlatformMonitorProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const insights = useMemo(
     () => generateInsights(platformSummary, titleSummary, language),
@@ -95,9 +95,20 @@ export function AIPlatformMonitor({
 
   const generatedAt = useMemo(() => formatTime(language), [language]);
 
+  const criticalInsights = useMemo(
+    () => insights.filter((i) => i.type === 'warning'),
+    [insights],
+  );
+
+  const nonCriticalCount = insights.length - criticalInsights.length;
+
   if (insights.length === 0) return null;
 
   const title = language === 'ko' ? '주요 이슈 브리핑' : '主要イシューブリーフィング';
+  const showAllLabel = language === 'ko'
+    ? `모두 보기 (${insights.length})`
+    : `すべて表示 (${insights.length})`;
+  const collapseLabel = language === 'ko' ? '접기' : '閉じる';
 
   return (
     <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
@@ -116,9 +127,16 @@ export function AIPlatformMonitor({
           <span className="text-[15px] font-bold text-primary">
             {title}
           </span>
-          <span className="text-xs text-muted-foreground font-medium px-1.5 py-0.5 rounded-md bg-muted">
-            {insights.length}
-          </span>
+          {criticalInsights.length > 0 && (
+            <span className="text-xs font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700">
+              {criticalInsights.length}
+            </span>
+          )}
+          {nonCriticalCount > 0 && (
+            <span className="text-xs text-muted-foreground font-medium px-1.5 py-0.5 rounded-md bg-muted">
+              +{nonCriticalCount}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2.5">
           <span className="text-[11px] text-muted-foreground hidden sm:inline">
@@ -132,10 +150,64 @@ export function AIPlatformMonitor({
         </div>
       </button>
 
+      {/* Critical alerts preview (when collapsed) */}
+      {!isExpanded && criticalInsights.length > 0 && (
+        <div className="border-t border-border/60 px-5 py-2.5">
+          {criticalInsights.slice(0, 2).map((insight, index) => {
+            const style = typeStyles[insight.type] || typeStyles.info;
+            return (
+              <div
+                key={index}
+                className={cn(
+                  'flex items-center gap-2.5 px-3 py-1.5 rounded-md',
+                  'border-l-[3px] mb-1 last:mb-0',
+                  style.border,
+                )}
+              >
+                <span className="text-sm leading-none shrink-0">
+                  {insight.icon}
+                </span>
+                <p className="text-[12px] leading-snug text-foreground/80 truncate">
+                  {insight.text}
+                </p>
+              </div>
+            );
+          })}
+          {insights.length > criticalInsights.slice(0, 2).length && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsExpanded(true);
+              }}
+              className="text-[11px] text-primary font-medium mt-1 hover:underline cursor-pointer bg-transparent border-none p-0"
+            >
+              {showAllLabel}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Collapsed: no critical alerts, show hint */}
+      {!isExpanded && criticalInsights.length === 0 && insights.length > 0 && (
+        <div className="border-t border-border/60 px-5 py-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExpanded(true);
+            }}
+            className="text-[11px] text-primary font-medium hover:underline cursor-pointer bg-transparent border-none p-0"
+          >
+            {showAllLabel}
+          </button>
+        </div>
+      )}
+
       {/* Divider */}
       {isExpanded && <div className="border-t border-border/60" />}
 
-      {/* Body */}
+      {/* Body (expanded) */}
       <AnimatePresence initial={false}>
         {isExpanded && (
           <motion.div
@@ -171,10 +243,22 @@ export function AIPlatformMonitor({
               })}
             </div>
 
-            {/* Mobile timestamp */}
-            <p className="text-[11px] text-muted-foreground mt-3 text-right sm:hidden">
-              {generatedAt}
-            </p>
+            {/* Collapse button + Mobile timestamp */}
+            <div className="flex items-center justify-between mt-3">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsExpanded(false);
+                }}
+                className="text-[11px] text-primary font-medium hover:underline cursor-pointer bg-transparent border-none p-0"
+              >
+                {collapseLabel}
+              </button>
+              <p className="text-[11px] text-muted-foreground sm:hidden">
+                {generatedAt}
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

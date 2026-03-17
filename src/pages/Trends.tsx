@@ -113,6 +113,8 @@ export function Trends() {
 
   const titleName = (item: { titleKR: string; titleJP: string }) =>
     language === 'ko' ? item.titleKR : item.titleJP;
+  const secondaryName = (item: { titleKR: string; titleJP: string }) =>
+    language === 'ko' ? item.titleJP : item.titleKR;
 
   return (
     <motion.div
@@ -160,9 +162,14 @@ export function Trends() {
                         >
                           {idx + 1}
                         </span>
-                        <span className="truncate text-sm font-medium text-foreground">
-                          {titleName(item.title)}
-                        </span>
+                        <div className="min-w-0">
+                          <span className="truncate text-sm font-medium text-foreground block">
+                            {titleName(item.title)}
+                          </span>
+                          {item.title.titleKR !== item.title.titleJP && (
+                            <span className="text-[10px] text-muted-foreground block truncate">{secondaryName(item.title)}</span>
+                          )}
+                        </div>
                       </div>
                       <span
                         className="flex-shrink-0 text-sm font-bold ml-3"
@@ -209,9 +216,14 @@ export function Trends() {
                           <line x1="12" y1="9" x2="12" y2="13" />
                           <line x1="12" y1="17" x2="12.01" y2="17" />
                         </svg>
-                        <span className="truncate text-sm font-medium text-foreground">
-                          {titleName(item.title)}
-                        </span>
+                        <div className="min-w-0">
+                          <span className="truncate text-sm font-medium text-foreground block">
+                            {titleName(item.title)}
+                          </span>
+                          {item.title.titleKR !== item.title.titleJP && (
+                            <span className="text-[10px] text-muted-foreground block truncate">{secondaryName(item.title)}</span>
+                          )}
+                        </div>
                       </div>
                       <span className="flex-shrink-0 text-sm font-bold ml-3 text-[#DC2626]">
                         {formatPercent(item.growth)}
@@ -253,9 +265,16 @@ export function Trends() {
                           <Badge variant="success">
                             {t(language, 'trend.new')}
                           </Badge>
-                          <span className="truncate font-medium text-foreground">
-                            {language === 'ko' ? item.titleKR : item.titleJP}
-                          </span>
+                          <div className="min-w-0">
+                            <span className="truncate font-medium text-foreground block">
+                              {language === 'ko' ? item.titleKR : item.titleJP}
+                            </span>
+                            {item.titleKR !== item.titleJP && (
+                              <span className="text-[10px] text-muted-foreground block truncate">
+                                {language === 'ko' ? item.titleJP : item.titleKR}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground font-medium">

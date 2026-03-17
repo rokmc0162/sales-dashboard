@@ -27,6 +27,9 @@ const RawData = lazy(() =>
 const SalesStructure = lazy(() =>
   import('./pages/SalesStructure').then(m => ({ default: m.SalesStructure })),
 );
+const TitleManagement = lazy(() =>
+  import('./pages/TitleManagement').then(m => ({ default: m.TitleManagement })),
+);
 
 // Minimal page-level loading indicator
 function PageLoader() {
@@ -53,6 +56,7 @@ function App() {
               <Route path="/structure" element={<SalesStructure />} />
               <Route path="/trends" element={<Trends />} />
               <Route path="/data" element={<RawData />} />
+              <Route path="/title-management" element={<TitleManagement />} />
             </Route>
           </Routes>
         </Suspense>

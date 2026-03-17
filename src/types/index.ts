@@ -24,6 +24,7 @@ export interface TitleSummary {
   firstDate: string;
   lastDate: string;
   monthlyTrend: { month: string; sales: number }[];
+  contentType?: ContentType;
 }
 
 export interface PlatformSummary {
@@ -39,7 +40,17 @@ export interface TitleMaster {
   titleJP: string;
   seriesName: string;
   platforms: string[];
+  contentType?: ContentType;
 }
+
+export type ContentType = 'WT' | 'EP' | 'EB' | 'UNKNOWN';
+
+export const CONTENT_TYPE_LABELS: Record<ContentType, { ko: string; ja: string }> = {
+  WT: { ko: '웹툰', ja: 'WEBTOON' },
+  EP: { ko: '화별', ja: '話別' },
+  EB: { ko: '권별', ja: '巻別' },
+  UNKNOWN: { ko: '미분류', ja: '未分類' },
+};
 
 export type Language = 'ko' | 'ja';
 export type Currency = 'JPY' | 'KRW';

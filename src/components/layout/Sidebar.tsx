@@ -9,6 +9,7 @@ import {
   TrendingUp,
   Database,
   Layers,
+  FileSpreadsheet,
   ChevronLeft,
   ChevronRight,
   X,
@@ -28,6 +29,7 @@ const navItems = [
   { path: '/structure', labelKey: 'nav.structure', icon: Layers },
   { path: '/trends', labelKey: 'nav.trends', icon: TrendingUp },
   { path: '/data', labelKey: 'nav.rawData', icon: Database },
+  { path: '/title-management', labelKey: 'nav.titleManagement', icon: FileSpreadsheet },
 ];
 
 function RiverseLogo({ expanded }: { expanded: boolean }) {

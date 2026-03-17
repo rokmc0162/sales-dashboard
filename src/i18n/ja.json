@@ -8,13 +8,16 @@
     "trends": "トレンド",
     "rawData": "データ",
     "dynamics": "PFダイナミクス",
-    "structure": "売上構造分析"
+    "structure": "売上構造分析",
+    "titleManagement": "作品管理"
   },
   "kpi": {
     "totalSales": "累計売上",
     "currentMonth": "今月売上",
     "momChange": "前月比",
-    "activeTitles": "アクティブ作品数"
+    "activeTitles": "アクティブ作品数",
+    "exclusive": "独占",
+    "nonExclusive": "非独占"
   },
   "chart": {
     "monthlySales": "月別売上推移",

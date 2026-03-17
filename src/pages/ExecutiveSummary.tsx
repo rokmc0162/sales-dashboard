@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { DashboardGrid } from '@/components/layout/DashboardGrid';
 import { staggerContainer, staggerItem, chartReveal } from '@/lib/constants';
 import { AIPlatformMonitor } from '@/components/AIPlatformMonitor';
+import { bilingualName } from '@/components/BilingualTitle';
 
 // ---------------------------------------------------------------------------
 // Custom Tooltip Components
@@ -136,7 +137,8 @@ export function ExecutiveSummary() {
 
   const {
     totalSales, currentMonthSales, currentMonthLabel, momChange,
-    activeTitleCount, sparklineData, monthlyChartData, platformChartData, topTitlesData,
+    activeTitleCount, exclusiveCount, nonExclusiveCount,
+    sparklineData, monthlyChartData, platformChartData, topTitlesData,
     totalDateRange,
   } = useMemo(() => {
     const monthly = [...data.monthlySummary].sort((a, b) => a.month.localeCompare(b.month));
@@ -163,6 +165,8 @@ export function ExecutiveSummary() {
 
     const momChange = calcMoMChange(monthly);
     const activeTitleCount = data.titleSummary.length;
+    const exclusiveCount = data.titleSummary.filter((ts) => ts.platforms.length === 1).length;
+    const nonExclusiveCount = activeTitleCount - exclusiveCount;
     const sparklineData = monthly.map((m) => m.totalSales);
 
     const monthlyChartData = monthly.map((m) => ({
@@ -183,17 +187,19 @@ export function ExecutiveSummary() {
       .sort((a, b) => b.totalSales - a.totalSales)
       .slice(0, 5)
       .map((title) => {
-        const fullName = language === 'ko' ? title.titleKR : title.titleJP;
+        const primaryName = language === 'ko' ? title.titleKR : title.titleJP;
+        const fullName = bilingualName(title.titleKR, title.titleJP, language);
         return {
           fullName,
-          name: fullName.length > 25 ? fullName.slice(0, 25) + '...' : fullName,
+          name: primaryName.length > 25 ? primaryName.slice(0, 25) + '...' : primaryName,
           sales: title.totalSales,
         };
       });
 
     return {
       totalSales, currentMonthSales, currentMonthLabel, momChange,
-      activeTitleCount, sparklineData, monthlyChartData, platformChartData, topTitlesData,
+      activeTitleCount, exclusiveCount, nonExclusiveCount,
+      sparklineData, monthlyChartData, platformChartData, topTitlesData,
       totalDateRange,
     };
   }, [data.monthlySummary, data.platformSummary, data.titleSummary, language]);
@@ -277,11 +283,37 @@ export function ExecutiveSummary() {
             />
           </motion.div>
           <motion.div variants={staggerItem}>
-            <KPICard
-              title={t(language, 'kpi.activeTitles')}
-              value={activeTitleCount.toString()}
-              icon={<BookOpen size={20} />}
-            />
+            <Card variant="glass" className="relative overflow-hidden h-full">
+              <CardContent className="p-5 flex flex-col justify-between h-full">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                    <BookOpen size={20} />
+                  </div>
+                  <span className="text-sm font-semibold text-muted-foreground">
+                    {t(language, 'kpi.activeTitles')}
+                  </span>
+                </div>
+                <div className="text-2xl font-extrabold text-primary tracking-tight mb-2">
+                  {activeTitleCount}
+                </div>
+                <div className="flex items-center gap-4 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                    <span className="text-muted-foreground font-medium">
+                      {language === 'ko' ? '독점' : '独占'}
+                    </span>
+                    <span className="font-bold text-foreground">{exclusiveCount}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span className="text-muted-foreground font-medium">
+                      {language === 'ko' ? '비독점' : '非独占'}
+                    </span>
+                    <span className="font-bold text-foreground">{nonExclusiveCount}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </motion.div>
         </DashboardGrid>
       </motion.div>
