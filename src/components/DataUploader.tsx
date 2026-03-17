@@ -33,6 +33,8 @@ import {
   clearUploadedData,
   hasUploadedData,
 } from '@/hooks/useDataLoader';
+import { parseInitialSalesExcel } from '@/utils/initialSalesParser';
+import { setInitialSalesData } from '@/hooks/useInitialSales';
 import {
   uploadDatasetToSupabase,
   isSupabaseConfigured,
@@ -135,7 +137,23 @@ export function DataUploader({
     setStage('classifying');
 
     try {
-      const result = await classifyFiles(files);
+      // Detect 초동매출 files and parse them separately
+      const initialSalesFiles = files.filter(f => f.name.includes('초동매출'));
+      const otherFiles = files.filter(f => !f.name.includes('초동매출'));
+
+      if (initialSalesFiles.length > 0) {
+        for (const isFile of initialSalesFiles) {
+          const isData = await parseInitialSalesExcel(isFile);
+          setInitialSalesData(isData);
+        }
+        // If only 초동매출 files, we're done
+        if (otherFiles.length === 0) {
+          setStage('done');
+          return;
+        }
+      }
+
+      const result = await classifyFiles(otherFiles);
       setClassified(result);
 
       const hasReport = result.reportExcel.length > 0;

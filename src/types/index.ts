@@ -52,6 +52,8 @@ export const CONTENT_TYPE_LABELS: Record<ContentType, { ko: string; ja: string }
   UNKNOWN: { ko: '미분류', ja: '未分類' },
 };
 
+export type { InitialSaleDaily, InitialSaleWeekly, InitialSalesData } from './initialSales';
+
 export type Language = 'ko' | 'ja';
 export type Currency = 'JPY' | 'KRW';
 

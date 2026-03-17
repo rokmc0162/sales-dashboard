@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, TrendingUp, TrendingDown, Minus, BarChart3, Filter } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, Minus, BarChart3, Filter, Zap } from 'lucide-react';
+import { InitialSalesView } from './InitialSalesView';
 import { useDataLoader, useDailySales } from '@/hooks/useDataLoader';
 import { useAppState } from '@/hooks/useAppState';
 import { t } from '@/i18n';
@@ -77,11 +78,14 @@ function LoadingSkeleton() {
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
+type MainTab = 'analysis' | 'initial';
+
 export function TitleAnalysis() {
   const { language, currency, exchangeRate } = useAppState();
   const data = useDataLoader();
   const { dailySales, loading: dailyLoading } = useDailySales(data);
 
+  const [mainTab, setMainTab] = useState<MainTab>('analysis');
   const [search, setSearch] = useState('');
   const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('sales');
@@ -319,12 +323,32 @@ export function TitleAnalysis() {
       {/* Page Title */}
       <motion.h1
         variants={staggerItem}
-        className="font-bold mb-6 text-primary text-2xl md:text-3xl tracking-tight"
+        className="font-bold mb-4 text-primary text-2xl md:text-3xl tracking-tight"
       >
         {t(language, 'nav.titles')}
       </motion.h1>
 
-      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 lg:h-[calc(100vh-160px)]">
+      {/* Main Tab Toggle: 매출 분석 | 초동매출 */}
+      <motion.div variants={staggerItem} className="mb-5">
+        <Tabs defaultValue="analysis" value={mainTab} onValueChange={(v) => setMainTab(v as MainTab)}>
+          <TabsList>
+            <TabsTrigger value="analysis" className="gap-1.5">
+              <BarChart3 size={14} />
+              {t(language, 'initialSales.salesAnalysis')}
+            </TabsTrigger>
+            <TabsTrigger value="initial" className="gap-1.5">
+              <Zap size={14} />
+              {t(language, 'initialSales.tab')}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </motion.div>
+
+      {/* Tab Content */}
+      {mainTab === 'initial' ? (
+        <InitialSalesView />
+      ) : (
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 lg:h-[calc(100vh-200px)]">
         {/* ================================================================ */}
         {/* LEFT PANEL -- Title List                                         */}
         {/* ================================================================ */}
@@ -836,6 +860,7 @@ export function TitleAnalysis() {
           )}
         </ScrollArea>
       </div>
+      )}
     </motion.div>
   );
 }
