@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // InitialSalesView — 초동매출 분석 탭 (inside TitleAnalysis)
 // ---------------------------------------------------------------------------
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -30,6 +30,7 @@ import type { InitialSaleDaily, InitialSaleWeekly } from '@/types/initialSales';
 /* ------------------------------------------------------------------ */
 
 const MAX_COMPARE = 8;
+const AUTO_SELECT_COUNT = 5;
 
 const LAUNCH_TYPE_COLORS: Record<string, string> = {
   '독점': '#2563EB',
@@ -46,6 +47,17 @@ const LAUNCH_TYPE_COLORS: Record<string, string> = {
 
 type SortKey = 'total' | 'day1' | 'launchDate' | 'title' | 'platform';
 type SortDir = 'asc' | 'desc';
+
+/** Unique key for a row — must include launchDate to distinguish duplicate title+platform */
+function rowKey(r: { titleKR: string; platform: string; launchDate: string }) {
+  return `${r.titleKR}|${r.platform}|${r.launchDate}`;
+}
+
+/** Short display name for chart legend */
+function shortName(r: { titleKR: string; platform: string }) {
+  const name = r.titleKR.length > 10 ? r.titleKR.slice(0, 10) + '…' : r.titleKR;
+  return `${name} (${r.platform})`;
+}
 
 function getUnique<T extends InitialSaleDaily | InitialSaleWeekly>(data: T[], key: keyof T): string[] {
   const set = new Set<string>();
@@ -125,7 +137,7 @@ export function InitialSalesView() {
   const weeklyData = data?.weekly ?? [];
   const dataset = viewMode === 'daily' ? dailyData : weeklyData;
 
-  // Unique filter options
+  // Unique filter options (always from daily — it has the most data)
   const platforms = useMemo(() => getUnique(dailyData, 'platform'), [dailyData]);
   const genres = useMemo(() => getUnique(dailyData, 'genre'), [dailyData]);
   const launchTypes = useMemo(() => getUnique(dailyData, 'launchType'), [dailyData]);
@@ -164,6 +176,13 @@ export function InitialSalesView() {
     return arr;
   }, [filtered, sortKey, sortDir]);
 
+  // ★ Auto-select top N whenever filtered/sorted changes
+  useEffect(() => {
+    const top = sorted.slice(0, AUTO_SELECT_COUNT);
+    const autoKeys = new Set(top.map(r => rowKey(r)));
+    setSelected(autoKeys);
+  }, [sorted]);
+
   // KPIs
   const kpis = useMemo(() => {
     if (filtered.length === 0) return null;
@@ -175,17 +194,16 @@ export function InitialSalesView() {
     return { count: filtered.length, avgFirst, avgTotal, best };
   }, [filtered, viewMode]);
 
-  // Comparison chart data
+  // Comparison chart data — based on selected keys
   const comparisonData = useMemo(() => {
-    const selectedItems = sorted.filter(r => selected.has(r.titleKR + '|' + r.platform));
+    const selectedItems = sorted.filter(r => selected.has(rowKey(r)));
     if (selectedItems.length === 0) return [];
 
     if (viewMode === 'daily') {
       return Array.from({ length: 8 }, (_, i) => {
         const point: Record<string, unknown> = { label: `Day${i + 1}` };
         for (const item of selectedItems) {
-          const key = item.titleKR.length > 12 ? item.titleKR.slice(0, 12) + '…' : item.titleKR;
-          point[key] = (item as InitialSaleDaily).days[i];
+          point[shortName(item)] = (item as InitialSaleDaily).days[i];
         }
         return point;
       });
@@ -194,8 +212,7 @@ export function InitialSalesView() {
     return Array.from({ length: 12 }, (_, i) => {
       const point: Record<string, unknown> = { label: `W${i + 1}` };
       for (const item of selectedItems) {
-        const key = item.titleKR.length > 12 ? item.titleKR.slice(0, 12) + '…' : item.titleKR;
-        point[key] = (item as InitialSaleWeekly).weeks[i];
+        point[shortName(item)] = (item as InitialSaleWeekly).weeks[i];
       }
       return point;
     });
@@ -233,9 +250,8 @@ export function InitialSalesView() {
       const existing = map.get(key) ?? { total: 0, count: 0 };
       map.set(key, { total: existing.total + r.total, count: existing.count + 1 });
     }
-    // Group by launchType for stacked bar
     const topGenres = genreStats.slice(0, 8).map(g => g.genre);
-    const result = topGenres.map(genre => {
+    return topGenres.map(genre => {
       const point: Record<string, unknown> = { genre };
       for (const lt of launchTypes) {
         const entry = map.get(`${genre}|${lt}`);
@@ -243,13 +259,12 @@ export function InitialSalesView() {
       }
       return point;
     });
-    return result;
   }, [filtered, genreStats, launchTypes]);
 
   // ---------- handlers ----------
 
-  const toggleSelect = useCallback((titleKR: string, platform: string) => {
-    const key = titleKR + '|' + platform;
+  const toggleSelect = useCallback((r: { titleKR: string; platform: string; launchDate: string }) => {
+    const key = rowKey(r);
     setSelected(prev => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -381,7 +396,7 @@ export function InitialSalesView() {
                   {...tooltipStyle}
                   formatter={(value: any) => [fmt(value), '']}
                 />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
                 {comparisonKeys.map((key, i) => (
                   <Line
                     key={key}
@@ -408,7 +423,7 @@ export function InitialSalesView() {
         <Card variant="glass">
           <div className="px-4 pt-4 pb-2 flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              {filtered.length}{language === 'ko' ? '개 작품' : '作品'}
+              {sorted.length}{language === 'ko' ? '개 작품' : '作品'}
               {selected.size > 0 && (
                 <span className="ml-2 text-primary font-medium">
                   ({selected.size}/{MAX_COMPARE} {t(language, 'initialSales.compare')})
@@ -431,7 +446,7 @@ export function InitialSalesView() {
                         } else {
                           const next = new Set<string>();
                           for (let i = 0; i < Math.min(sorted.length, MAX_COMPARE); i++) {
-                            next.add(sorted[i].titleKR + '|' + sorted[i].platform);
+                            next.add(rowKey(sorted[i]));
                           }
                           setSelected(next);
                         }
@@ -458,11 +473,11 @@ export function InitialSalesView() {
                   >
                     {t(language, 'initialSales.launchDate')} {sortKey === 'launchDate' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                   </TableHead>
-                  {periodLabels.map(label => (
+                  {periodLabels.map((label, idx) => (
                     <TableHead
                       key={label}
-                      className={`text-right text-xs cursor-pointer hover:text-primary ${label === (viewMode === 'daily' ? 'Day1' : 'W1') && sortKey === 'day1' ? 'text-primary' : ''}`}
-                      onClick={() => label === periodLabels[0] ? toggleSort('day1') : undefined}
+                      className={`text-right text-xs ${idx === 0 ? 'cursor-pointer hover:text-primary' : ''} ${idx === 0 && sortKey === 'day1' ? 'text-primary' : ''}`}
+                      onClick={() => idx === 0 ? toggleSort('day1') : undefined}
                     >
                       {label}
                     </TableHead>
@@ -477,24 +492,24 @@ export function InitialSalesView() {
               </TableHeader>
               <TableBody>
                 {sorted.map((row) => {
-                  const key = row.titleKR + '|' + row.platform;
-                  const isSelected = selected.has(key);
+                  const rk = rowKey(row);
+                  const isSelected = selected.has(rk);
                   const periods = viewMode === 'daily'
                     ? (row as InitialSaleDaily).days
                     : (row as InitialSaleWeekly).weeks;
 
                   return (
                     <TableRow
-                      key={key}
+                      key={rk}
                       className={`cursor-pointer transition-colors ${isSelected ? 'bg-primary/5' : 'hover:bg-muted/50'}`}
-                      onClick={() => toggleSelect(row.titleKR, row.platform)}
+                      onClick={() => toggleSelect(row)}
                     >
                       <TableCell className="text-center">
                         <input
                           type="checkbox"
                           className="accent-primary"
                           checked={isSelected}
-                          onChange={() => toggleSelect(row.titleKR, row.platform)}
+                          onChange={() => toggleSelect(row)}
                           onClick={e => e.stopPropagation()}
                         />
                       </TableCell>
