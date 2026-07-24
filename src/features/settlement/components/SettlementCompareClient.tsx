@@ -12,6 +12,12 @@ import {
 } from "lucide-react";
 
 import { useApp } from "@/context/AppContext";
+import {
+  categorySentence,
+  displayValue,
+  fieldLabel,
+  type DisplayValue,
+} from "@/features/settlement/lib/comparison/display";
 
 type ReviewStatus =
   | "pending"
@@ -28,6 +34,7 @@ type Summary = {
   exact_rows?: number;
   missing_rows?: number;
   extra_rows?: number;
+  field_mismatches?: Record<string, number>;
   diff_total?: number;
   source_warnings?: string[];
   source_uploads_truncated?: boolean;
@@ -86,26 +93,27 @@ function displayMonth(month: string) {
   return `${month.slice(0, 4)}-${month.slice(4, 6)}`;
 }
 
-function boundedText(value: unknown): string {
-  if (value === null || value === undefined) return "-";
-  if (typeof value === "string") return value.slice(0, 220);
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if (obj.state === "blank") return "-";
-    if (obj.state === "formula") {
-      const formula = typeof obj.formula === "string" ? obj.formula.slice(0, 120) : "";
-      const result = obj.value === null || obj.value === undefined ? "" : ` = ${boundedText(obj.value)}`;
-      return `formula ${formula}${result}`.slice(0, 220);
-    }
-    if ("value" in obj) return boundedText(obj.value);
-    if ("row" in obj) return `row ${String(obj.row).slice(0, 20)}`;
-  }
-  return String(value).slice(0, 220);
-}
-
 function metric(value: unknown) {
   return typeof value === "number" ? value.toLocaleString() : "0";
+}
+
+export function displayedFieldMismatchTotal(summary: Summary | null | undefined): number {
+  const fieldMismatches = summary?.field_mismatches;
+  if (fieldMismatches) {
+    return Object.values(fieldMismatches).reduce(
+      (sum, count) => sum + (typeof count === "number" ? count : 0),
+      0,
+    );
+  }
+  const diffTotal = typeof summary?.diff_total === "number" ? summary.diff_total : 0;
+  const missingRows = typeof summary?.missing_rows === "number" ? summary.missing_rows : 0;
+  const extraRows = typeof summary?.extra_rows === "number" ? summary.extra_rows : 0;
+  return Math.max(0, diffTotal - missingRows - extraRows);
+}
+
+function sideValue(diff: Diff, side: "human" | "system", t: (ko: string, ja: string) => string): DisplayValue {
+  if (side === "human") return displayValue(diff.golden_value, t, diff.category === "extra");
+  return displayValue(diff.candidate_value, t, diff.category === "missing");
 }
 
 function runStatusLabel(status: Run["status"], t: (ko: string, ja: string) => string) {
@@ -120,8 +128,8 @@ function runStatusLabel(status: Run["status"], t: (ko: string, ja: string) => st
 function reviewStatusLabel(status: ReviewStatus, t: (ko: string, ja: string) => string) {
   const labels: Record<ReviewStatus, string> = {
     pending: t("대기", "未確認"),
-    candidate_correct: t("후보가 맞음", "候補が正しい"),
-    golden_correct: t("정답지가 맞음", "正解が正しい"),
+    candidate_correct: t("시스템 정리본이 맞음", "システム整理版が正しい"),
+    golden_correct: t("사람 작업본이 맞음", "人の作業版が正しい"),
     needs_review: t("검토 필요", "要レビュー"),
     resolved: t("해결됨", "解決済み"),
   };
@@ -130,10 +138,10 @@ function reviewStatusLabel(status: ReviewStatus, t: (ko: string, ja: string) => 
 
 function categoryLabel(category: DiffCategory, t: (ko: string, ja: string) => string) {
   const labels: Record<DiffCategory, string> = {
-    missing: t("누락", "不足"),
-    extra: t("추가", "追加"),
-    field: t("값 차이", "値差分"),
-    formula: t("수식 차이", "数式差分"),
+    missing: t("사람 작업본에만 있음", "人の作業版のみにあり"),
+    extra: t("시스템에만 있음", "システムのみにあり"),
+    field: t("값이 다름", "値が異なる"),
+    formula: t("값이 다름", "値が異なる"),
   };
   return labels[category] ?? category;
 }
@@ -142,6 +150,50 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function ValueBlock({
+  value,
+  t,
+}: {
+  value: DisplayValue;
+  t: (ko: string, ja: string) => string;
+}) {
+  if (value.cells.length === 0) {
+    return (
+      <div className="mt-1 text-sm">
+        <span className={`break-words ${value.absent ? "font-semibold text-red-700 dark:text-red-300" : "text-slate-900 dark:text-slate-100"}`}>
+          {value.text}
+        </span>
+        {value.formula && (
+          <span className="ml-2 inline-flex max-w-full rounded bg-violet-100 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-200">
+            {t("수식", "数式")} {value.formula}
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 space-y-1.5">
+      {value.cells.map((cell) => (
+        <div key={cell.field} className="rounded-md bg-white/70 px-2 py-1.5 text-xs dark:bg-slate-900/70">
+          <span className="font-semibold text-slate-500 dark:text-slate-400">{cell.label}</span>
+          <span className="mx-1 text-slate-400">:</span>
+          <span className="break-words text-slate-900 dark:text-slate-100">{cell.text}</span>
+          {cell.formula && (
+            <span className="ml-2 inline-flex max-w-full rounded bg-violet-100 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-200">
+              {t("수식", "数式")} {cell.formula}
+            </span>
+          )}
+        </div>
+      ))}
+      {value.hiddenCellCount > 0 && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {t(`외 ${value.hiddenCellCount}개 셀`, `ほか${value.hiddenCellCount}セル`)}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function SettlementCompareClient({ month }: { month: string }) {
@@ -284,11 +336,11 @@ export default function SettlementCompareClient({ month }: { month: string }) {
 
   function applyAnswerFile(file: File) {
     if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      setError(t("정답지는 .xlsx 파일이어야 합니다.", "正解ファイルは .xlsx である必要があります。"));
+      setError(t("사람 작업본은 .xlsx 파일이어야 합니다.", "人の作業版は .xlsx である必要があります。"));
       return;
     }
     if (file.size > MAX_ANSWER_BYTES) {
-      setError(t("정답지 파일은 3.5MB 이하만 업로드할 수 있습니다.", "正解ファイルは3.5MB以下のみアップロードできます。"));
+      setError(t("사람 작업본 파일은 3.5MB 이하만 업로드할 수 있습니다.", "人の作業版ファイルは3.5MB以下のみアップロードできます。"));
       return;
     }
     setError(null);
@@ -397,6 +449,18 @@ export default function SettlementCompareClient({ month }: { month: string }) {
     () => (Array.isArray(summary?.source_warnings) ? summary.source_warnings : []),
     [summary],
   );
+  const fieldMismatchEntries = useMemo(
+    () =>
+      Object.entries(summary?.field_mismatches ?? {})
+        .filter(([, count]) => typeof count === "number" && count > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8),
+    [summary],
+  );
+  const fieldMismatchTotal = useMemo(
+    () => displayedFieldMismatchTotal(summary),
+    [summary],
+  );
   const pageStart = totalDiffs === 0 ? 0 : offset + 1;
   const pageEnd = Math.min(offset + PAGE_SIZE, totalDiffs);
 
@@ -404,7 +468,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
     <div className="flex w-full flex-col gap-6">
       <div>
         <h2 className="text-lg font-bold text-slate-950 dark:text-white">
-          {t("정답지 비교", "正解ファイル比較")} · {monthLabel}
+          {t("사람 작업본과 시스템 정리본 비교", "人の作業版とシステム整理版の比較")} · {monthLabel}
         </h2>
       </div>
 
@@ -413,7 +477,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
           <div
             role="button"
             tabIndex={0}
-            aria-label={t("정답지 .xlsx 선택 또는 끌어다 놓기", "正解 .xlsx を選択またはドラッグ＆ドロップ")}
+            aria-label={t("사람 작업본 .xlsx 선택 또는 끌어다 놓기", "人の作業版 .xlsx を選択またはドラッグ＆ドロップ")}
             onClick={() => {
               if (!submitting) answerInputRef.current?.click();
             }}
@@ -455,10 +519,10 @@ export default function SettlementCompareClient({ month }: { month: string }) {
             ) : (
               <>
                 <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                  {t("정답지 .xlsx를 여기에 끌어다 놓거나 클릭해 선택하세요.", "正解 .xlsx をここにドラッグ＆ドロップするか、クリックして選択してください。")}
+                  {t("사람 작업본 OUTPUT .xlsx를 여기에 끌어다 놓거나 클릭해 선택하세요.", "人の作業版 OUTPUT .xlsx をここにドラッグ＆ドロップするか、クリックして選択してください。")}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {t(".xlsx 1개, 3.5MB 이하 · 현재 정산월의 INPUT 후보와 비교합니다.", ".xlsx 1件、3.5MB以下 · 現在の精算月のINPUT候補と比較します。")}
+                  {t(".xlsx 1개, 3.5MB 이하 · 현재 정산월의 시스템 정리본 INPUT과 비교합니다.", ".xlsx 1件、3.5MB以下 · 現在の精算月のシステム整理版 INPUT と比較します。")}
                 </p>
               </>
             )}
@@ -490,7 +554,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               {run
                 ? `${run.answer_filename} · ${displayMonth(run.month.replaceAll("-", "").slice(0, 6))} · ${runStatusLabel(run.status, t)}`
-                : t("정답지를 업로드해 비교를 실행하거나, 아래 비교 이력에서 선택해 주세요.", "正解ファイルをアップロードして比較を実行するか、下の比較履歴から選択してください。")}
+                : t("사람 작업본을 업로드해 비교를 실행하거나, 아래 비교 이력에서 선택해 주세요.", "人の作業版をアップロードして比較を実行するか、下の比較履歴から選択してください。")}
             </p>
           </div>
           {run && (
@@ -502,7 +566,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
                 className="inline-flex items-center rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-800 dark:border-slate-700 dark:text-slate-100"
               >
                 <Download className="mr-1.5 h-3.5 w-3.5" />
-                {t("정답지 열기", "正解を開く")}
+                {t("사람 작업본 열기", "人の作業版を開く")}
               </a>
               <a
                 href={`/api/settlement/comparisons/${run.id}/artifacts/candidate`}
@@ -511,7 +575,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
                 className={`inline-flex items-center rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold dark:border-slate-700 ${run.candidate_filename ? "text-slate-800 dark:text-slate-100" : "pointer-events-none opacity-50"}`}
               >
                 <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                {t("후보 열기", "候補を開く")}
+                {t("시스템 정리본 열기", "システム整理版を開く")}
               </a>
             </div>
           )}
@@ -542,12 +606,12 @@ export default function SettlementCompareClient({ month }: { month: string }) {
         )}
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            [t("후보 행", "候補行"), summary?.candidate_rows],
-            [t("정답 행", "正解行"), summary?.golden_rows],
+            [t("시스템 정리본 행", "システム整理版の行"), summary?.candidate_rows],
+            [t("사람 작업본 행", "人の作業版の行"), summary?.golden_rows],
             [t("매칭 행", "照合行"), summary?.matched_rows],
             [t("완전 일치", "完全一致"), summary?.exact_rows],
-            [t("누락", "不足"), summary?.missing_rows],
-            [t("추가", "追加"), summary?.extra_rows],
+            [t("사람 작업본에만 있음", "人の作業版のみにあり"), summary?.missing_rows],
+            [t("시스템에만 있음", "システムのみにあり"), summary?.extra_rows],
             [t("차이 총계", "差分合計"), summary?.diff_total],
           ].map(([label, value]) => (
             <div key={String(label)} className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
@@ -556,6 +620,18 @@ export default function SettlementCompareClient({ month }: { month: string }) {
             </div>
           ))}
         </div>
+        {fieldMismatchEntries.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {fieldMismatchEntries.map(([field, count]) => (
+              <span
+                key={field}
+                className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+              >
+                {fieldLabel(field, t)} {metric(count)}
+              </span>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -588,6 +664,20 @@ export default function SettlementCompareClient({ month }: { month: string }) {
             </select>
           </div>
         </div>
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
+          <p className="font-semibold text-slate-900 dark:text-white">
+            {t(
+              `차이 총계는 사람 작업본에만 있는 행 ${metric(summary?.missing_rows)}건, 시스템에만 있는 행 ${metric(summary?.extra_rows)}건, 값이 다른 셀 ${metric(fieldMismatchTotal)}건을 합산한 것입니다.`,
+              `差分合計は、人の作業版のみにある行 ${metric(summary?.missing_rows)}件、システムのみにある行 ${metric(summary?.extra_rows)}件、値が異なるセル ${metric(fieldMismatchTotal)}件の合計です。`,
+            )}
+          </p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {t(
+              "차이는 오류의 증거가 아닙니다. 원본 자료를 확인한 뒤 어떤 쪽을 채택할지 판정해 주세요.",
+              "差分は誤りの証拠ではありません。元資料を確認してから、どちらを採用するか判定してください。",
+            )}
+          </p>
+        </div>
 
         {loadingDiffs && (
           <div className="mt-4 rounded-xl bg-slate-50 py-10 text-center text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-400">
@@ -602,7 +692,10 @@ export default function SettlementCompareClient({ month }: { month: string }) {
         )}
         {!loadingDiffs && diffs.length > 0 && (
           <ul className="mt-4 space-y-3">
-            {diffs.map((diff) => (
+            {diffs.map((diff) => {
+              const humanValue = sideValue(diff, "human", t);
+              const systemValue = sideValue(diff, "system", t);
+              return (
               <li key={diff.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${CATEGORY_BADGE[diff.category]}`}>
@@ -617,7 +710,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
                     [t("채널", "チャネル"), diff.identity_channel],
                     [t("유형", "種別"), diff.identity_type],
                     [t("작품명", "タイトル"), diff.identity_title],
-                    [t("필드", "項目"), diff.field],
+                    [t("필드", "項目"), fieldLabel(diff.field, t)],
                   ].map(([label, value]) => (
                     <div key={String(label)}>
                       <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
@@ -625,14 +718,17 @@ export default function SettlementCompareClient({ month }: { month: string }) {
                     </div>
                   ))}
                 </dl>
+                <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm font-medium text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+                  {categorySentence(diff, t)}
+                </p>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{t("후보 (DB)", "候補 (DB)")}</p>
-                    <p className="mt-1 break-words text-sm text-slate-900 dark:text-slate-100">{boundedText(diff.candidate_value)}</p>
-                  </div>
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
-                    <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{t("정답 (파일)", "正解 (ファイル)")}</p>
-                    <p className="mt-1 break-words text-sm text-slate-900 dark:text-slate-100">{boundedText(diff.golden_value)}</p>
+                    <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{t("사람 작업본 (업로드 OUTPUT)", "人の作業版 (アップロード OUTPUT)")}</p>
+                    <ValueBlock value={humanValue} t={t} />
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{t("시스템 정리본 (INPUT)", "システム整理版 (INPUT)")}</p>
+                    <ValueBlock value={systemValue} t={t} />
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -661,7 +757,8 @@ export default function SettlementCompareClient({ month }: { month: string }) {
                   </button>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
 

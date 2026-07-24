@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "settlement:compare-golden": "node --import tsx scripts/compare-input-jp-golden.ts",
+    "test:settlement-comparison-display": "node --import tsx scripts/test-settlement-comparison-display.ts && node --import tsx scripts/test-settlement-comparison-summary.ts",
     "bench:shueisha": "node --import tsx scripts/bench-shueisha-ocr.ts",
     "content-master:import": "node --import tsx scripts/content-master-import.ts",
     "test:settlement": "node --import tsx scripts/test-direct-upload.ts && node --import tsx scripts/test-settlement-heartbeat-stream.ts && node --import tsx scripts/test-piccoma-companion-reconcile.ts && node --import tsx scripts/test-shueisha-hard-failure.ts && node --import tsx scripts/test-shueisha-runtime-bundling.ts && node --import tsx scripts/test-shueisha-ocr-concurrency.ts && node --import tsx scripts/test-shueisha-amount-fastpath.ts && node --import tsx scripts/test-comparison-compare.ts && node --import tsx scripts/test-comparison-artifact-path.ts && node --import tsx scripts/test-input-v2-carry-baseline-fallback.ts && node --import tsx scripts/test-input-v2-source-gates.ts && node --import tsx scripts/test-input-v2-carry-forward.ts && node --import tsx scripts/test-parser-repair-phase-b.ts && node scripts/test-verify-canvas-vercel-bundle.mjs",
