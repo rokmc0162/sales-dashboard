@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
   Download,
   ExternalLink,
   Loader2,
@@ -13,11 +14,20 @@ import {
 
 import { useApp } from "@/context/AppContext";
 import {
-  categorySentence,
   displayValue,
   fieldLabel,
   type DisplayValue,
 } from "@/features/settlement/lib/comparison/display";
+import {
+  alignedRowTable,
+  canApplyValueViewFilter,
+  differenceText,
+  groupCategories,
+  groupCounts,
+  groupCountsLabel,
+  groupDiffs,
+  isValueDiffCategory,
+} from "@/features/settlement/lib/comparison/presentation";
 
 type ReviewStatus =
   | "pending"
@@ -89,6 +99,22 @@ const CATEGORY_BADGE: Record<DiffCategory, string> = {
   formula: "bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
 };
 
+const CATEGORY_DOT: Record<DiffCategory, string> = {
+  missing: "bg-red-500",
+  extra: "bg-amber-500",
+  field: "bg-sky-500",
+  formula: "bg-violet-500",
+};
+
+const CATEGORY_DIFF_TEXT: Record<DiffCategory, string> = {
+  missing: "text-red-700 dark:text-red-300",
+  extra: "text-amber-700 dark:text-amber-300",
+  field: "text-sky-700 dark:text-sky-300",
+  formula: "text-violet-700 dark:text-violet-300",
+};
+
+type QuickFilter = "all" | "missing" | "extra" | "value";
+
 function displayMonth(month: string) {
   return `${month.slice(0, 4)}-${month.slice(4, 6)}`;
 }
@@ -156,47 +182,11 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
-function ValueBlock({
-  value,
-  t,
-}: {
-  value: DisplayValue;
-  t: (ko: string, ja: string) => string;
-}) {
-  if (value.cells.length === 0) {
-    return (
-      <div className="mt-1 text-sm">
-        <span className={`break-words ${value.absent ? "font-semibold text-red-700 dark:text-red-300" : "text-slate-900 dark:text-slate-100"}`}>
-          {value.text}
-        </span>
-        {value.formula && (
-          <span className="ml-2 inline-flex max-w-full rounded bg-violet-100 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-200">
-            {t("수식", "数式")} {value.formula}
-          </span>
-        )}
-      </div>
-    );
-  }
+function FormulaChip({ formula, t }: { formula: string; t: (ko: string, ja: string) => string }) {
   return (
-    <div className="mt-2 space-y-1.5">
-      {value.cells.map((cell) => (
-        <div key={cell.field} className="rounded-md bg-white/70 px-2 py-1.5 text-xs dark:bg-slate-900/70">
-          <span className="font-semibold text-slate-500 dark:text-slate-400">{cell.label}</span>
-          <span className="mx-1 text-slate-400">:</span>
-          <span className="break-words text-slate-900 dark:text-slate-100">{cell.text}</span>
-          {cell.formula && (
-            <span className="ml-2 inline-flex max-w-full rounded bg-violet-100 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-200">
-              {t("수식", "数式")} {cell.formula}
-            </span>
-          )}
-        </div>
-      ))}
-      {value.hiddenCellCount > 0 && (
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          {t(`외 ${value.hiddenCellCount}개 셀`, `ほか${value.hiddenCellCount}セル`)}
-        </p>
-      )}
-    </div>
+    <span className="ml-1.5 inline-flex max-w-full rounded bg-violet-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-200">
+      {t("수식", "数式")} {formula}
+    </span>
   );
 }
 
@@ -224,6 +214,8 @@ export default function SettlementCompareClient({ month }: { month: string }) {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [answerFile, setAnswerFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [valueViewMode, setValueViewMode] = useState(false);
 
   currentMonthRef.current = month;
 
@@ -243,6 +235,8 @@ export default function SettlementCompareClient({ month }: { month: string }) {
     setAnswerFile(null);
     setDragActive(false);
     setLoadingDiffs(false);
+    setExpandedGroups(new Set());
+    setValueViewMode(false);
     if (answerInputRef.current) answerInputRef.current.value = "";
   }
 
@@ -324,6 +318,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
       setDiffs(nextDiffs);
       setTotalDiffs(Number(json.pagination?.total ?? 0));
       setNotes(Object.fromEntries(nextDiffs.map((d) => [d.id, d.review_note ?? ""])));
+      setExpandedGroups(new Set());
     } catch (e) {
       if (requestSeq !== loadRunDetailsSeqRef.current || requestMonth !== currentMonthRef.current) return;
       setError((e as Error).message);
@@ -484,6 +479,45 @@ export default function SettlementCompareClient({ month }: { month: string }) {
   );
   const pageStart = totalDiffs === 0 ? 0 : offset + 1;
   const pageEnd = Math.min(offset + PAGE_SIZE, totalDiffs);
+
+  const valueFilterAvailable = canApplyValueViewFilter({
+    category,
+    offset,
+    totalDiffs,
+    pageSize: PAGE_SIZE,
+  });
+  const valueViewActive = valueViewMode && valueFilterAvailable;
+  const visibleDiffs = useMemo(
+    () => (valueViewActive ? diffs.filter((d) => isValueDiffCategory(d.category)) : diffs),
+    [diffs, valueViewActive],
+  );
+  const diffGroups = useMemo(() => groupDiffs(visibleDiffs), [visibleDiffs]);
+  const activeQuickFilter: QuickFilter | null = valueViewActive
+    ? "value"
+    : category === ""
+      ? "all"
+      : category === "missing" || category === "extra"
+        ? category
+        : null;
+
+  function applyQuickFilter(mode: QuickFilter) {
+    const nextCategory: DiffCategory | "" = mode === "missing" || mode === "extra" ? mode : "";
+    setValueViewMode(mode === "value");
+    if (nextCategory !== category || offset !== 0) {
+      invalidateRunDetails();
+      setCategory(nextCategory);
+      setOffset(0);
+    }
+  }
+
+  function toggleGroup(key: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -663,6 +697,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
               value={category}
               onChange={(e) => {
                 invalidateRunDetails();
+                setValueViewMode(false);
                 setCategory(e.target.value as DiffCategory | "");
                 setOffset(0);
               }}
@@ -685,6 +720,47 @@ export default function SettlementCompareClient({ month }: { month: string }) {
             </select>
           </div>
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {(
+            [
+              { mode: "all", label: t("전체", "全体") },
+              { mode: "missing", label: t("시스템 누락", "システム欠落") },
+              { mode: "extra", label: t("시스템 추가", "システム追加") },
+              { mode: "value", label: t("값 차이", "値の差") },
+            ] as Array<{ mode: QuickFilter; label: string }>
+          ).map(({ mode, label }) => {
+            const disabled = mode === "value" && !valueFilterAvailable;
+            const active = activeQuickFilter === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => applyQuickFilter(mode)}
+                disabled={disabled}
+                title={
+                  disabled
+                    ? t(
+                        "차이가 한 페이지를 넘어 값 차이 필터를 정확히 적용할 수 없습니다. 분류 선택을 이용해 주세요.",
+                        "差分が1ページを超えるため、値の差フィルタを正確に適用できません。分類の選択をご利用ください。",
+                      )
+                    : undefined
+                }
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  active
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+          {valueViewActive && (
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {t(`값 차이 ${visibleDiffs.length}건 표시 중`, `値の差${visibleDiffs.length}件表示中`)}
+            </span>
+          )}
+        </div>
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
           <p className="font-semibold text-slate-900 dark:text-white">
             {t(
@@ -706,78 +782,187 @@ export default function SettlementCompareClient({ month }: { month: string }) {
             {t("불러오는 중", "読み込み中")}
           </div>
         )}
-        {!loadingDiffs && diffs.length === 0 && (
+        {!loadingDiffs && visibleDiffs.length === 0 && (
           <div className="mt-4 rounded-xl bg-slate-50 py-10 text-center text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-400">
             {t("표시할 차이가 없습니다.", "表示する差分はありません。")}
           </div>
         )}
-        {!loadingDiffs && diffs.length > 0 && (
-          <ul className="mt-4 space-y-3">
-            {diffs.map((diff) => {
-              const humanValue = sideValue(diff, "human", t);
-              const systemValue = sideValue(diff, "system", t);
+        {!loadingDiffs && visibleDiffs.length > 0 && (
+          <ul className="mt-4 space-y-2">
+            {diffGroups.map((group) => {
+              const counts = groupCounts(group.diffs);
+              const expanded = expandedGroups.has(group.key);
+              const pendingCount = group.diffs.filter((d) => d.review_status === "pending").length;
               return (
-              <li key={diff.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${CATEGORY_BADGE[diff.category]}`}>
-                    {categoryLabel(diff.category, t)}
-                  </span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                    {reviewStatusLabel(diff.review_status, t)}
-                  </span>
-                </div>
-                <dl className="mt-3 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                  {[
-                    [t("채널", "チャネル"), diff.identity_channel],
-                    [t("유형", "種別"), diff.identity_type],
-                    [t("작품명", "タイトル"), diff.identity_title],
-                    [t("필드", "項目"), fieldLabel(diff.field, t)],
-                  ].map(([label, value]) => (
-                    <div key={String(label)}>
-                      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
-                      <dd className="break-words font-medium text-slate-900 dark:text-slate-100">{value ?? "-"}</dd>
-                    </div>
-                  ))}
-                </dl>
-                <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm font-medium text-slate-800 dark:bg-slate-950 dark:text-slate-100">
-                  {categorySentence(diff, t)}
-                </p>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
-                    <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{t("사람 작업본 (업로드 OUTPUT)", "人の作業版 (アップロード OUTPUT)")}</p>
-                    <ValueBlock value={humanValue} t={t} />
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{t("시스템 정리본 (INPUT)", "システム整理版 (INPUT)")}</p>
-                    <ValueBlock value={systemValue} t={t} />
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <select
-                    value={diff.review_status}
-                    onChange={(e) => void patchDiff(diff, e.target.value as ReviewStatus)}
-                    disabled={patchingId === diff.id}
-                    className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950"
-                  >
-                    {REVIEW_STATUSES.map((s) => <option key={s} value={s}>{reviewStatusLabel(s, t)}</option>)}
-                  </select>
-                  <input
-                    value={notes[diff.id] ?? ""}
-                    onChange={(e) => setNotes((prev) => ({ ...prev, [diff.id]: e.target.value.slice(0, 2000) }))}
-                    placeholder={t("메모", "メモ")}
-                    className="min-w-48 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950"
-                  />
+                <li key={group.key} className="rounded-xl border border-slate-200 dark:border-slate-800">
                   <button
                     type="button"
-                    onClick={() => void patchDiff(diff, diff.review_status)}
-                    disabled={patchingId === diff.id}
-                    className="inline-flex items-center rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold dark:border-slate-700"
+                    onClick={() => toggleGroup(group.key)}
+                    aria-expanded={expanded}
+                    className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:hover:bg-slate-950/60"
                   >
-                    {patchingId === diff.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <CheckCircle2 className="mr-1 h-3 w-3" />}
-                    {t("저장", "保存")}
+                    <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${expanded ? "" : "-rotate-90"}`} />
+                    <span className="flex shrink-0 items-center gap-1" aria-hidden>
+                      {groupCategories(group.diffs).map((c) => (
+                        <span key={c} className={`h-2 w-2 rounded-full ${CATEGORY_DOT[c]}`} />
+                      ))}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        {group.title || t("(작품명 없음)", "(タイトルなし)")}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                        {group.channel || "-"} · {group.type || "-"}
+                      </span>
+                    </span>
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        {groupCountsLabel(counts, t)}
+                      </span>
+                      {pendingCount > 0 ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+                          {t(`대기 ${pendingCount}`, `未確認 ${pendingCount}`)}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200">
+                          {t("검토 완료", "レビュー済み")}
+                        </span>
+                      )}
+                    </span>
                   </button>
-                </div>
-              </li>
+                  {expanded && (
+                    <div className="border-t border-slate-200 px-3 pb-3 dark:border-slate-800">
+                      <div className="overflow-x-auto">
+                        <table className="mt-2 w-full min-w-[560px] border-collapse text-xs">
+                          <thead>
+                            <tr className="text-left text-slate-500 dark:text-slate-400">
+                              <th className="w-[26%] py-1.5 pr-3 font-semibold">{t("항목", "項目")}</th>
+                              <th className="w-[28%] py-1.5 pr-3 font-semibold text-emerald-700 dark:text-emerald-300">{t("사람 작업본", "人の作業版")}</th>
+                              <th className="w-[28%] py-1.5 pr-3 font-semibold">{t("시스템 작업본", "システム作業版")}</th>
+                              <th className="py-1.5 font-semibold">{t("차이", "差異")}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.diffs.map((diff) => {
+                              const humanValue = sideValue(diff, "human", t);
+                              const systemValue = sideValue(diff, "system", t);
+                              const isValueDiff = isValueDiffCategory(diff.category);
+                              const aligned = isValueDiff ? null : alignedRowTable(humanValue, systemValue);
+                              return (
+                                <Fragment key={diff.id}>
+                                  {isValueDiff ? (
+                                    <tr className="border-t border-slate-100 dark:border-slate-800/60">
+                                      <td className="py-2 pr-3 align-top font-medium text-slate-900 dark:text-slate-100">
+                                        {fieldLabel(diff.field, t)}
+                                        {diff.category === "formula" && (
+                                          <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CATEGORY_BADGE.formula}`}>
+                                            {t("수식", "数式")}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="break-words py-2 pr-3 align-top text-slate-900 dark:text-slate-100">
+                                        {humanValue.text}
+                                        {humanValue.formula && <FormulaChip formula={humanValue.formula} t={t} />}
+                                      </td>
+                                      <td className="break-words py-2 pr-3 align-top text-slate-900 dark:text-slate-100">
+                                        {systemValue.text}
+                                        {systemValue.formula && <FormulaChip formula={systemValue.formula} t={t} />}
+                                      </td>
+                                      <td className={`py-2 align-top font-semibold ${CATEGORY_DIFF_TEXT[diff.category]}`}>
+                                        {differenceText(diff, t)}
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    <>
+                                      <tr className="border-t border-slate-100 dark:border-slate-800/60">
+                                        <td className="py-2 pr-3 align-top">
+                                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${CATEGORY_BADGE[diff.category]}`}>
+                                            {categoryLabel(diff.category, t)}
+                                          </span>
+                                        </td>
+                                        <td className={`py-2 pr-3 align-top ${humanValue.absent ? "font-semibold text-red-700 dark:text-red-300" : "text-slate-600 dark:text-slate-300"}`}>
+                                          {humanValue.absent ? t("이 행이 없습니다", "この行はありません") : t("행 있음", "行あり")}
+                                        </td>
+                                        <td className={`py-2 pr-3 align-top ${systemValue.absent ? "font-semibold text-red-700 dark:text-red-300" : "text-slate-600 dark:text-slate-300"}`}>
+                                          {systemValue.absent ? t("이 행이 없습니다", "この行はありません") : t("행 있음", "行あり")}
+                                        </td>
+                                        <td className={`py-2 align-top font-semibold ${CATEGORY_DIFF_TEXT[diff.category]}`}>
+                                          {differenceText(diff, t)}
+                                        </td>
+                                      </tr>
+                                      {aligned?.rows.map((row) => (
+                                        <tr key={`${diff.id}:${row.field}`} className="border-t border-slate-100 dark:border-slate-800/60">
+                                          <td className="py-1.5 pr-3 align-top text-slate-500 dark:text-slate-400">{row.label}</td>
+                                          <td className="break-words py-1.5 pr-3 align-top text-slate-900 dark:text-slate-100">
+                                            {row.human ? (
+                                              <>
+                                                {row.human.text}
+                                                {row.human.formula && <FormulaChip formula={row.human.formula} t={t} />}
+                                              </>
+                                            ) : (
+                                              <span className="text-red-400 dark:text-red-500">—</span>
+                                            )}
+                                          </td>
+                                          <td className="break-words py-1.5 pr-3 align-top text-slate-900 dark:text-slate-100">
+                                            {row.system ? (
+                                              <>
+                                                {row.system.text}
+                                                {row.system.formula && <FormulaChip formula={row.system.formula} t={t} />}
+                                              </>
+                                            ) : (
+                                              <span className="text-red-400 dark:text-red-500">—</span>
+                                            )}
+                                          </td>
+                                          <td className="py-1.5 align-top text-slate-400">-</td>
+                                        </tr>
+                                      ))}
+                                      {aligned && aligned.hiddenCount > 0 && (
+                                        <tr className="border-t border-slate-100 dark:border-slate-800/60">
+                                          <td colSpan={4} className="py-1.5 text-slate-500 dark:text-slate-400">
+                                            {t(`외 ${aligned.hiddenCount}개 셀`, `ほか${aligned.hiddenCount}セル`)}
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </>
+                                  )}
+                                  <tr>
+                                    <td colSpan={4} className="pb-3 pt-1">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <select
+                                          value={diff.review_status}
+                                          onChange={(e) => void patchDiff(diff, e.target.value as ReviewStatus)}
+                                          disabled={patchingId === diff.id}
+                                          className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950"
+                                        >
+                                          {REVIEW_STATUSES.map((s) => <option key={s} value={s}>{reviewStatusLabel(s, t)}</option>)}
+                                        </select>
+                                        <input
+                                          value={notes[diff.id] ?? ""}
+                                          onChange={(e) => setNotes((prev) => ({ ...prev, [diff.id]: e.target.value.slice(0, 2000) }))}
+                                          placeholder={t("메모", "メモ")}
+                                          className="min-w-48 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => void patchDiff(diff, diff.review_status)}
+                                          disabled={patchingId === diff.id}
+                                          className="inline-flex items-center rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold dark:border-slate-700"
+                                        >
+                                          {patchingId === diff.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <CheckCircle2 className="mr-1 h-3 w-3" />}
+                                          {t("저장", "保存")}
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </li>
               );
             })}
           </ul>

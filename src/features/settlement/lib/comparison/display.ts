@@ -262,13 +262,19 @@ function numericValue(value: unknown): number | null {
   return null;
 }
 
-export function numericDeltaText(systemValue: unknown, humanValue: unknown, t: Translate): string | null {
+export function signedNumericDeltaText(systemValue: unknown, humanValue: unknown): string | null {
   const system = numericValue(systemValue);
   const human = numericValue(humanValue);
   if (system === null || human === null) return null;
   const delta = system - human;
   const sign = delta > 0 ? "+" : "";
-  return t(`시스템-사람 ${sign}${formatNumber(delta)}`, `システム-人 ${sign}${formatNumber(delta)}`);
+  return `${sign}${formatNumber(delta)}`;
+}
+
+export function numericDeltaText(systemValue: unknown, humanValue: unknown, t: Translate): string | null {
+  const signed = signedNumericDeltaText(systemValue, humanValue);
+  if (signed === null) return null;
+  return t(`시스템-사람 ${signed}`, `システム-人 ${signed}`);
 }
 
 export function categorySentence(diff: DisplayDiff, t: Translate): string {
