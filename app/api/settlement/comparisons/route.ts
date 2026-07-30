@@ -24,6 +24,7 @@ import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import {
   completeComparisonRun,
   createComparisonRun,
+  getLatestCompletedComparisonRunId,
   insertComparisonDiffChunks,
   listComparisonRuns,
   markComparisonRunFailed,
@@ -245,8 +246,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const runs = await listComparisonRuns({ month: batchIso, limit: 50 });
-    return NextResponse.json({ runs });
+    const [runs, latestCompletedRunId] = await Promise.all([
+      listComparisonRuns({ month: batchIso, limit: 50 }),
+      batchIso ? getLatestCompletedComparisonRunId(batchIso) : Promise.resolve(null),
+    ]);
+    return NextResponse.json({ runs, latest_completed_run_id: latestCompletedRunId });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

@@ -97,6 +97,10 @@ function metric(value: unknown) {
   return typeof value === "number" ? value.toLocaleString() : "0";
 }
 
+export function latestCompletedRunIdFromResponse(value: unknown): string {
+  return typeof value === "string" && value.length > 0 ? value : "";
+}
+
 export function displayedFieldMismatchTotal(summary: Summary | null | undefined): number {
   const fieldMismatches = summary?.field_mismatches;
   if (fieldMismatches) {
@@ -246,7 +250,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
     loadRunDetailsSeqRef.current += 1;
   }
 
-  async function loadRuns(selectLatest = false) {
+  async function loadRuns(selectMode: "none" | "latest" | "latest-completed" = "none") {
     const requestSeq = ++loadRunsSeqRef.current;
     const requestMonth = month;
     setLoadingRuns(true);
@@ -258,9 +262,23 @@ export default function SettlementCompareClient({ month }: { month: string }) {
       if (requestSeq !== loadRunsSeqRef.current || requestMonth !== currentMonthRef.current) return;
       const nextRuns = (json.runs ?? []) as Run[];
       setRuns(nextRuns);
-      if (nextRuns.length > 0 && selectLatest) {
+      if (nextRuns.length > 0 && selectMode === "latest") {
         invalidateRunDetails();
         setSelectedRunId(nextRuns[0].id);
+      } else if (nextRuns.length > 0 && selectMode === "latest-completed") {
+        // The API resolves this independently of the 50-item history window.
+        const completedId = latestCompletedRunIdFromResponse(json.latest_completed_run_id);
+        if (completedId) {
+          invalidateRunDetails();
+          setSelectedRunId(completedId);
+        } else {
+          invalidateRunDetails();
+          setSelectedRunId("");
+          setRun(null);
+          setDiffs([]);
+          setTotalDiffs(0);
+          setNotes({});
+        }
       } else if (nextRuns.length === 0) {
         invalidateRunDetails();
         setSelectedRunId("");
@@ -323,9 +341,9 @@ export default function SettlementCompareClient({ month }: { month: string }) {
     setPatchingId(null);
     invalidateRunDetails();
     clearMonthState();
-    // Load history for the bottom section without presenting an old run as
-    // the result of the operator's current comparison.
-    void loadRuns(false);
+    // Show this month's newest completed run right away; processing/failed
+    // runs stay unselected so a broken result is never presented by default.
+    void loadRuns("latest-completed");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
 
@@ -374,6 +392,9 @@ export default function SettlementCompareClient({ month }: { month: string }) {
     const isCurrentRequest = () => requestSeq === compareSeqRef.current && requestMonth === currentMonthRef.current;
     setSubmitting(true);
     setError(null);
+    // Cancel the initial/history list request before clearing the old run so it
+    // cannot reselect a stale result while this comparison is in progress.
+    loadRunsSeqRef.current += 1;
     // Drop the previous run immediately so its result and artifact links
     // cannot stay visible while this comparison runs or after it fails.
     invalidateRunDetails();
@@ -393,7 +414,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
       const json = await res.json().catch(() => ({}));
       if (!isCurrentRequest()) return;
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      await loadRuns(true);
+      await loadRuns("latest");
       if (!isCurrentRequest()) return;
       if (json.run_id) {
         invalidateRunDetails();
@@ -405,7 +426,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
     } catch (e) {
       if (!isCurrentRequest()) return;
       const message = (e as Error).message;
-      await loadRuns(false);
+      await loadRuns("none");
       if (!isCurrentRequest()) return;
       setError(message);
     } finally {
@@ -796,7 +817,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
           <h2 className="text-sm font-bold text-slate-950 dark:text-white">{t("비교 이력", "比較履歴")}</h2>
           <button
             type="button"
-            onClick={() => void loadRuns(false)}
+            onClick={() => void loadRuns("none")}
             className="rounded-lg border border-slate-300 p-2 text-slate-700 transition hover:border-emerald-500 dark:border-slate-700 dark:text-slate-200"
             aria-label={t("새로고침", "更新")}
           >

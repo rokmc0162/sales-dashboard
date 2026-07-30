@@ -246,6 +246,22 @@ export async function listComparisonRuns(params: {
   return rows.map(sanitizeRun);
 }
 
+export async function getLatestCompletedComparisonRunId(
+  monthValue: string,
+): Promise<string | null> {
+  const month = validateComparisonMonth(monthValue);
+  const sql = getSql();
+  const rows = await sql<{ id: string }[]>`
+    select id
+    from settlement_comparison_runs
+    where month = ${month}
+      and status = 'completed'
+    order by created_at desc
+    limit 1
+  `;
+  return rows[0]?.id ?? null;
+}
+
 export async function getComparisonRun(
   id: string,
 ): Promise<SanitizedComparisonRun | null> {
