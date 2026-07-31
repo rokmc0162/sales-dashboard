@@ -24,7 +24,10 @@ export type DiffReviewValidation =
   | { ok: true; patch: DiffReviewPatch }
   | { ok: false; error: string };
 
-export function validateDiffReviewPatch(body: unknown): DiffReviewValidation {
+export function validateDiffReviewPatch(
+  body: unknown,
+  options?: { allowEmpty?: boolean },
+): DiffReviewValidation {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, error: "body must be a JSON object" };
   }
@@ -59,7 +62,9 @@ export function validateDiffReviewPatch(body: unknown): DiffReviewValidation {
     }
   }
 
-  if (patch.review_status === undefined && patch.review_note === undefined) {
+  // allowEmpty lets the route combine this patch with investigation fields
+  // before deciding whether the request carried anything at all.
+  if (patch.review_status === undefined && patch.review_note === undefined && !options?.allowEmpty) {
     return { ok: false, error: "provide review_status and/or note" };
   }
   return { ok: true, patch };

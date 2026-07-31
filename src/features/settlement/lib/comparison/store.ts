@@ -2,20 +2,28 @@ import "server-only";
 
 import postgres from "postgres";
 
+import { COMMENT_BODY_MAX_LENGTH, COMMENT_LIST_LIMIT } from "./investigation";
 import {
   clampComparisonDiffLimit,
   clampComparisonRunLimit,
   normalizeComparisonOffset,
+  validateComparisonCommentAuthor,
   validateComparisonDiffCategory,
+  validateComparisonInvestigationStatus,
   validateComparisonMonth,
   validateComparisonReviewStatus,
+  validateComparisonRootCauseStage,
   validateComparisonRunStatus,
   validateComparisonUuid,
 } from "./store-validation";
 import type {
+  ComparisonCommentAuthorType,
   ComparisonDiffCategory,
   ComparisonDiffReviewStatus,
+  ComparisonInvestigationStatus,
+  ComparisonRootCauseStage,
   Json,
+  SettlementComparisonCommentRow,
   SettlementComparisonDiffInsert,
   SettlementComparisonDiffRow,
   SettlementComparisonRunInsert,
@@ -46,6 +54,9 @@ export type DiffReviewUpdate = {
   review_status?: ComparisonDiffReviewStatus;
   review_note?: string | null;
   reviewed_by?: string | null;
+  investigation_status?: ComparisonInvestigationStatus;
+  root_cause_stage?: ComparisonRootCauseStage | null;
+  root_cause_summary?: string | null;
 };
 
 const MAX_RUN_LIMIT = 50;
@@ -352,7 +363,9 @@ async function selectDiffs(
       select
         id, run_id, category, identity_channel, identity_type, identity_title,
         field, candidate_value, golden_value, review_status, review_note,
-        reviewed_at::text, reviewed_by, created_at::text
+        reviewed_at::text, reviewed_by,
+        investigation_status, root_cause_stage, root_cause_summary,
+        created_at::text
       from settlement_comparison_diffs
       where run_id = ${runId}
         and category = ${category}
@@ -367,7 +380,9 @@ async function selectDiffs(
       select
         id, run_id, category, identity_channel, identity_type, identity_title,
         field, candidate_value, golden_value, review_status, review_note,
-        reviewed_at::text, reviewed_by, created_at::text
+        reviewed_at::text, reviewed_by,
+        investigation_status, root_cause_stage, root_cause_summary,
+        created_at::text
       from settlement_comparison_diffs
       where run_id = ${runId}
         and category = ${category}
@@ -381,7 +396,9 @@ async function selectDiffs(
       select
         id, run_id, category, identity_channel, identity_type, identity_title,
         field, candidate_value, golden_value, review_status, review_note,
-        reviewed_at::text, reviewed_by, created_at::text
+        reviewed_at::text, reviewed_by,
+        investigation_status, root_cause_stage, root_cause_summary,
+        created_at::text
       from settlement_comparison_diffs
       where run_id = ${runId}
         and review_status = ${reviewStatus}
@@ -394,7 +411,9 @@ async function selectDiffs(
     select
       id, run_id, category, identity_channel, identity_type, identity_title,
       field, candidate_value, golden_value, review_status, review_note,
-      reviewed_at::text, reviewed_by, created_at::text
+      reviewed_at::text, reviewed_by,
+      investigation_status, root_cause_stage, root_cause_summary,
+      created_at::text
     from settlement_comparison_diffs
     where run_id = ${runId}
     order by created_at asc, id asc
@@ -411,6 +430,12 @@ export async function patchComparisonDiffReview(
   if (update.review_status !== undefined) {
     validateComparisonReviewStatus(update.review_status);
   }
+  if (update.investigation_status !== undefined) {
+    validateComparisonInvestigationStatus(update.investigation_status);
+  }
+  if (update.root_cause_stage !== undefined && update.root_cause_stage !== null) {
+    validateComparisonRootCauseStage(update.root_cause_stage);
+  }
   const sql = getSql();
   const rows = await sql<SettlementComparisonDiffRow[]>`
     update settlement_comparison_diffs
@@ -426,14 +451,88 @@ export async function patchComparisonDiffReview(
         reviewed_by = case
           when ${update.review_status ?? null}::text is null then reviewed_by
           else ${update.reviewed_by ?? null}
+        end,
+        investigation_status = coalesce(${update.investigation_status ?? null}, investigation_status),
+        root_cause_stage = case
+          when ${update.root_cause_stage !== undefined} then ${update.root_cause_stage ?? null}
+          else root_cause_stage
+        end,
+        root_cause_summary = case
+          when ${update.root_cause_summary !== undefined} then ${update.root_cause_summary ?? null}
+          else root_cause_summary
         end
     where id = ${diffId}
     returning
       id, run_id, category, identity_channel, identity_type, identity_title,
       field, candidate_value, golden_value, review_status, review_note,
-      reviewed_at::text, reviewed_by, created_at::text
+      reviewed_at::text, reviewed_by,
+      investigation_status, root_cause_stage, root_cause_summary,
+      created_at::text
   `;
   return rows[0] ?? null;
+}
+
+export async function listComparisonComments(
+  diffId: string,
+): Promise<{ comments: SettlementComparisonCommentRow[]; truncated: boolean } | null> {
+  validateComparisonUuid(diffId);
+  const sql = getSql();
+  const parent = await sql<{ id: string }[]>`
+    select id
+    from settlement_comparison_diffs
+    where id = ${diffId}
+    limit 1
+  `;
+  if (!parent[0]) return null;
+  const rows = await sql<SettlementComparisonCommentRow[]>`
+    select id, diff_id, author_type, body, created_at::text
+    from settlement_comparison_comments
+    where diff_id = ${diffId}
+    order by created_at desc, id desc
+    limit ${COMMENT_LIST_LIMIT + 1}
+  `;
+  const truncated = rows.length > COMMENT_LIST_LIMIT;
+  const comments = rows.slice(0, COMMENT_LIST_LIMIT).reverse();
+  return { comments, truncated };
+}
+
+export async function insertComparisonComment(
+  diffId: string,
+  body: string,
+  authorType: ComparisonCommentAuthorType,
+): Promise<SettlementComparisonCommentRow | null> {
+  validateComparisonUuid(diffId);
+  validateComparisonCommentAuthor(authorType);
+  const trimmed = body.trim();
+  if (trimmed.length === 0 || trimmed.length > COMMENT_BODY_MAX_LENGTH) {
+    throw new Error(`comment body must be non-blank and at most ${COMMENT_BODY_MAX_LENGTH} characters`);
+  }
+  const sql = getSql();
+  return sql.begin(async (tx) => {
+    const trx = tx as unknown as Sql;
+    const parent = await trx<{ id: string }[]>`
+      select id
+      from settlement_comparison_diffs
+      where id = ${diffId}
+      for update
+    `;
+    if (!parent[0]) return null;
+    const rows = await trx<SettlementComparisonCommentRow[]>`
+      insert into settlement_comparison_comments (diff_id, author_type, body)
+      values (${diffId}, ${authorType}, ${trimmed})
+      returning id, diff_id, author_type, body, created_at::text
+    `;
+    // An operator comment is a question for hermes, so the investigation
+    // moves to question_pending in the same transaction as the insert.
+    if (authorType === "operator") {
+      await trx`
+        update settlement_comparison_diffs
+        set investigation_status = 'question_pending'
+        where id = ${diffId}
+      `;
+    }
+    return rows[0] ?? null;
+  }) as Promise<SettlementComparisonCommentRow | null>;
 }
 
 export async function getComparisonArtifactPaths(

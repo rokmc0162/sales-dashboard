@@ -1,7 +1,15 @@
+import {
+  COMMENT_AUTHOR_TYPES,
+  DIFF_INVESTIGATION_STATUSES,
+  ROOT_CAUSE_STAGES,
+} from "./investigation";
 import { DIFF_REVIEW_STATUSES } from "./review";
 import type {
+  ComparisonCommentAuthorType,
   ComparisonDiffCategory,
   ComparisonDiffReviewStatus,
+  ComparisonInvestigationStatus,
+  ComparisonRootCauseStage,
   SettlementComparisonRunStatus,
 } from "../supabase/types";
 
@@ -53,6 +61,33 @@ export function validateComparisonReviewStatus(
     throw new Error(`review_status must be one of: ${DIFF_REVIEW_STATUSES.join(", ")}`);
   }
   return value as ComparisonDiffReviewStatus;
+}
+
+export function validateComparisonInvestigationStatus(
+  value: string,
+): ComparisonInvestigationStatus {
+  if (!DIFF_INVESTIGATION_STATUSES.includes(value as ComparisonInvestigationStatus)) {
+    throw new Error(`investigation_status must be one of: ${DIFF_INVESTIGATION_STATUSES.join(", ")}`);
+  }
+  return value as ComparisonInvestigationStatus;
+}
+
+export function validateComparisonRootCauseStage(
+  value: string,
+): ComparisonRootCauseStage {
+  if (!ROOT_CAUSE_STAGES.includes(value as ComparisonRootCauseStage)) {
+    throw new Error(`root_cause_stage must be one of: ${ROOT_CAUSE_STAGES.join(", ")}`);
+  }
+  return value as ComparisonRootCauseStage;
+}
+
+export function validateComparisonCommentAuthor(
+  value: string,
+): ComparisonCommentAuthorType {
+  if (!COMMENT_AUTHOR_TYPES.includes(value as ComparisonCommentAuthorType)) {
+    throw new Error(`author_type must be one of: ${COMMENT_AUTHOR_TYPES.join(", ")}`);
+  }
+  return value as ComparisonCommentAuthorType;
 }
 
 export function clampComparisonRunLimit(value: number): number {

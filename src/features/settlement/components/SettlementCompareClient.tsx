@@ -13,11 +13,16 @@ import {
 } from "lucide-react";
 
 import { useApp } from "@/context/AppContext";
+import InvestigationThread from "@/features/settlement/components/InvestigationThread";
 import {
   displayValue,
   fieldLabel,
   type DisplayValue,
 } from "@/features/settlement/lib/comparison/display";
+import type {
+  ComparisonInvestigationStatus,
+  ComparisonRootCauseStage,
+} from "@/features/settlement/lib/supabase/types";
 import {
   alignedRowTable,
   canApplyValueViewFilter,
@@ -79,6 +84,9 @@ type Diff = {
   golden_value: unknown;
   review_status: ReviewStatus;
   review_note: string | null;
+  investigation_status: ComparisonInvestigationStatus;
+  root_cause_stage: ComparisonRootCauseStage | null;
+  root_cause_summary: string | null;
 };
 
 const REVIEW_STATUSES: ReviewStatus[] = [
@@ -458,6 +466,16 @@ export default function SettlementCompareClient({ month }: { month: string }) {
         setPatchingId(null);
       }
     }
+  }
+
+  // An operator comment moved the diff to question_pending server-side;
+  // mirror that locally so the panel updates without reloading the page.
+  function markQuestionPending(diffId: string) {
+    setDiffs((prev) =>
+      prev.map((row) =>
+        row.id === diffId ? { ...row, investigation_status: "question_pending" } : row,
+      ),
+    );
   }
 
   const summary = run?.summary ?? null;
@@ -952,6 +970,15 @@ export default function SettlementCompareClient({ month }: { month: string }) {
                                           {t("저장", "保存")}
                                         </button>
                                       </div>
+                                      <InvestigationThread
+                                        diffId={diff.id}
+                                        category={diff.category}
+                                        field={diff.field}
+                                        investigationStatus={diff.investigation_status}
+                                        rootCauseStage={diff.root_cause_stage}
+                                        rootCauseSummary={diff.root_cause_summary}
+                                        onQuestionPosted={markQuestionPending}
+                                      />
                                     </td>
                                   </tr>
                                 </Fragment>

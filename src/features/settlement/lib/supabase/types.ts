@@ -297,6 +297,26 @@ export type ComparisonDiffReviewStatus =
   | "golden_correct"
   | "needs_review"
   | "resolved";
+export type ComparisonInvestigationStatus =
+  | "uninvestigated"
+  | "question_pending"
+  | "investigating"
+  | "cause_confirmed"
+  | "fix_in_progress"
+  | "verification_pending"
+  | "resolved";
+export type ComparisonRootCauseStage =
+  | "source"
+  | "upload"
+  | "parser"
+  | "transform"
+  | "identity"
+  | "aggregation"
+  | "carry"
+  | "formula"
+  | "human_workbook"
+  | "unknown";
+export type ComparisonCommentAuthorType = "operator" | "hermes" | "system";
 
 export type SettlementComparisonDiffRow = {
   id: string;
@@ -312,6 +332,9 @@ export type SettlementComparisonDiffRow = {
   review_note: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
+  investigation_status: ComparisonInvestigationStatus;
+  root_cause_stage: ComparisonRootCauseStage | null;
+  root_cause_summary: string | null;
   created_at: string;
 }
 export type SettlementComparisonDiffInsert = {
@@ -328,6 +351,24 @@ export type SettlementComparisonDiffInsert = {
   review_note?: string | null;
   reviewed_at?: string | null;
   reviewed_by?: string | null;
+  investigation_status?: ComparisonInvestigationStatus;
+  root_cause_stage?: ComparisonRootCauseStage | null;
+  root_cause_summary?: string | null;
+  created_at?: string;
+}
+
+export type SettlementComparisonCommentRow = {
+  id: string;
+  diff_id: string;
+  author_type: ComparisonCommentAuthorType;
+  body: string;
+  created_at: string;
+}
+export type SettlementComparisonCommentInsert = {
+  id?: string;
+  diff_id: string;
+  author_type: ComparisonCommentAuthorType;
+  body: string;
   created_at?: string;
 }
 
