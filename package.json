@@ -12,6 +12,7 @@
     "test:settlement-investigation": "node --import tsx scripts/test-settlement-investigation.ts && node --import tsx scripts/test-settlement-investigation-ui.ts && node --import tsx scripts/test-settlement-investigation-cli.ts && node --import tsx scripts/test-settlement-api-body.ts",
     "test:settlement-comparison-display": "node --import tsx scripts/test-settlement-comparison-display.ts && node --import tsx scripts/test-settlement-comparison-presentation.ts && node --import tsx scripts/test-settlement-comparison-summary.ts && node --import tsx scripts/test-settlement-comparison-selection.ts",
     "test:settlement-workbook-review": "node --import tsx scripts/test-settlement-workbook-review.ts && node --import tsx scripts/test-settlement-workbook-review-ui.ts",
+    "test:settlement-spreadsheet-review": "node --import tsx scripts/test-settlement-spreadsheet-review.ts",
     "test:settlement-archive-download": "node --import tsx scripts/test-archive-download.ts",
     "bench:shueisha": "node --import tsx scripts/bench-shueisha-ocr.ts",
     "content-master:import": "node --import tsx scripts/content-master-import.ts",

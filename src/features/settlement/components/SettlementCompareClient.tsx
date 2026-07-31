@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 
 import { useApp } from "@/context/AppContext";
-import AnswerWorkbookReview from "@/features/settlement/components/AnswerWorkbookReview";
 import InvestigationThread from "@/features/settlement/components/InvestigationThread";
 import {
   displayValue,
@@ -710,7 +709,36 @@ export default function SettlementCompareClient({ month }: { month: string }) {
       </section>
 
       {run?.status === "completed" && hasRunDiffs ? (
-        <AnswerWorkbookReview key={run.id} runId={run.id} />
+        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-bold text-slate-950 dark:text-white">
+                {t("정답지 스프레드시트 검수", "正解ファイルのスプレッドシートレビュー")}
+              </h2>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                {t(
+                  "넓은 전체 화면에서 셀 차이를 이동하며 확인하고 조사 코멘트를 남길 수 있습니다.",
+                  "広い全画面でセル差分を移動しながら確認し、調査コメントを残せます。",
+                )}
+              </p>
+              <p className="mt-2 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                {t(
+                  `검토할 차이 ${metric(Math.max(totalDiffs, summary?.diff_total ?? 0))}건`,
+                  `レビュー対象の差分 ${metric(Math.max(totalDiffs, summary?.diff_total ?? 0))}件`,
+                )}
+              </p>
+            </div>
+            <a
+              target="_blank"
+              rel="noopener noreferrer"
+              href={`/settlement-sheet/${run.id}`}
+              className="inline-flex items-center rounded-lg bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+            >
+              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+              {t("스프레드시트로 크게 열기", "スプレッドシートを大きく開く")}
+            </a>
+          </div>
+        </section>
       ) : null}
 
       <details className="group">

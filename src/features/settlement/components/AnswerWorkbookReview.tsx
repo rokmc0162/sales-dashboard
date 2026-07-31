@@ -66,7 +66,7 @@ function targetElementId(runId: string, target: Pick<WorkbookOverlayTarget, "row
   return `workbook-review-${runId}-${target.rowIndex}-${target.cellIndex ?? "row"}`;
 }
 
-function reviewStatusLabel(status: WorkbookReviewOverlay["review_status"], t: Translate) {
+export function reviewStatusLabel(status: WorkbookReviewOverlay["review_status"], t: Translate) {
   const labels = {
     pending: t("대기", "未確認"),
     candidate_correct: t("시스템 정리본이 맞음", "システム整理版が正しい"),
@@ -77,7 +77,7 @@ function reviewStatusLabel(status: WorkbookReviewOverlay["review_status"], t: Tr
   return labels[status];
 }
 
-function differenceExplanation(overlay: WorkbookReviewOverlay, t: Translate) {
+export function differenceExplanation(overlay: WorkbookReviewOverlay, t: Translate) {
   if (overlay.category === "missing") {
     return t(
       "이 행은 사람 정답지에는 있지만 시스템 정리본에는 없습니다.",
@@ -99,11 +99,11 @@ function differenceExplanation(overlay: WorkbookReviewOverlay, t: Translate) {
     : t(`${label} 셀의 값이 서로 다릅니다.`, `${label}セルの値が異なります。`);
 }
 
-function locationText(location: WorkbookReviewOverlay["golden_location"], t: Translate) {
+export function locationText(location: WorkbookReviewOverlay["golden_location"], t: Translate) {
   return location ? `${location.sheet}!${location.address}` : t("해당 위치 없음", "該当位置なし");
 }
 
-function BoundedValue({
+export function BoundedValue({
   value,
   absent,
   t,
@@ -143,7 +143,7 @@ function BoundedValue({
   );
 }
 
-function withQuestionPending(review: WorkbookReview, diffId: string): WorkbookReview {
+export function withQuestionPending(review: WorkbookReview, diffId: string): WorkbookReview {
   const update = (overlay: WorkbookReviewOverlay) =>
     overlay.diff_id === diffId
       ? { ...overlay, investigation_status: "question_pending" as const }
