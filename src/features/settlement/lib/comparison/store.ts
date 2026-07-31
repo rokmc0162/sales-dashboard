@@ -60,8 +60,10 @@ export type DiffReviewUpdate = {
 };
 
 const MAX_RUN_LIMIT = 50;
+export const WORKBOOK_REVIEW_DIFF_LIMIT = 20_000;
 const DIFF_INSERT_COLUMNS = [
   "run_id",
+  "diff_ordinal",
   "category",
   "identity_channel",
   "identity_type",
@@ -209,6 +211,7 @@ export async function insertComparisonDiffChunks(
     for (let offset = 0; offset < diffs.length; offset += size) {
       const rows = diffs.slice(offset, offset + size).map((diff) => ({
         run_id: diff.run_id,
+        diff_ordinal: diff.diff_ordinal,
         category: diff.category,
         identity_channel: diff.identity_channel ?? null,
         identity_type: diff.identity_type ?? null,
@@ -361,7 +364,7 @@ async function selectDiffs(
   if (category && reviewStatus) {
     return sql<SettlementComparisonDiffRow[]>`
       select
-        id, run_id, category, identity_channel, identity_type, identity_title,
+        id, run_id, diff_ordinal, category, identity_channel, identity_type, identity_title,
         field, candidate_value, golden_value, review_status, review_note,
         reviewed_at::text, reviewed_by,
         investigation_status, root_cause_stage, root_cause_summary,
@@ -378,7 +381,7 @@ async function selectDiffs(
   if (category) {
     return sql<SettlementComparisonDiffRow[]>`
       select
-        id, run_id, category, identity_channel, identity_type, identity_title,
+        id, run_id, diff_ordinal, category, identity_channel, identity_type, identity_title,
         field, candidate_value, golden_value, review_status, review_note,
         reviewed_at::text, reviewed_by,
         investigation_status, root_cause_stage, root_cause_summary,
@@ -394,7 +397,7 @@ async function selectDiffs(
   if (reviewStatus) {
     return sql<SettlementComparisonDiffRow[]>`
       select
-        id, run_id, category, identity_channel, identity_type, identity_title,
+        id, run_id, diff_ordinal, category, identity_channel, identity_type, identity_title,
         field, candidate_value, golden_value, review_status, review_note,
         reviewed_at::text, reviewed_by,
         investigation_status, root_cause_stage, root_cause_summary,
@@ -409,7 +412,7 @@ async function selectDiffs(
   }
   return sql<SettlementComparisonDiffRow[]>`
     select
-      id, run_id, category, identity_channel, identity_type, identity_title,
+      id, run_id, diff_ordinal, category, identity_channel, identity_type, identity_title,
       field, candidate_value, golden_value, review_status, review_note,
       reviewed_at::text, reviewed_by,
       investigation_status, root_cause_stage, root_cause_summary,
@@ -463,7 +466,7 @@ export async function patchComparisonDiffReview(
         end
     where id = ${diffId}
     returning
-      id, run_id, category, identity_channel, identity_type, identity_title,
+      id, run_id, diff_ordinal, category, identity_channel, identity_type, identity_title,
       field, candidate_value, golden_value, review_status, review_note,
       reviewed_at::text, reviewed_by,
       investigation_status, root_cause_stage, root_cause_summary,
@@ -547,4 +550,30 @@ export async function getComparisonArtifactPaths(
     limit 1
   `;
   return rows[0] ?? null;
+}
+
+/** Every persisted diff needed for workbook mapping, bounded by the persisted comparison cap. */
+export async function listAllComparisonDiffs(
+  runIdValue: string,
+): Promise<SettlementComparisonDiffRow[]> {
+  const runId = validateComparisonUuid(runIdValue);
+  const sql = getSql();
+  type CountedDiff = SettlementComparisonDiffRow & { total_count: string };
+  const rows = await sql<CountedDiff[]>`
+    select
+      id, run_id, diff_ordinal, category, identity_channel, identity_type, identity_title,
+      field, candidate_value, golden_value, review_status, review_note,
+      reviewed_at::text, reviewed_by,
+      investigation_status, root_cause_stage, root_cause_summary,
+      created_at::text,
+      count(*) over()::text as total_count
+    from settlement_comparison_diffs
+    where run_id = ${runId}
+    order by diff_ordinal asc
+    limit ${WORKBOOK_REVIEW_DIFF_LIMIT}
+  `;
+  if (Number(rows[0]?.total_count ?? 0) > WORKBOOK_REVIEW_DIFF_LIMIT) {
+    throw new Error(`comparison run exceeds ${WORKBOOK_REVIEW_DIFF_LIMIT} review diffs`);
+  }
+  return rows;
 }

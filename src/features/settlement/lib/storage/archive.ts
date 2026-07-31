@@ -20,6 +20,7 @@ import {
 export type { ComparisonArtifactKind } from "./comparison-artifact-path";
 
 const BUCKET = "upload-debug";
+export const MAX_ARCHIVE_DOWNLOAD_BYTES = 6 * 1024 * 1024;
 
 export interface ArchiveWriteResult {
   /** bucket-relative path — store this in raw_uploads.storage_path */
@@ -110,6 +111,33 @@ export async function getSignedArchiveUrl(
     .createSignedUrl(path, expiresInSeconds);
   if (error) return null;
   return data.signedUrl;
+}
+
+/** Download one private archive object into memory, rejecting anything over 6 MiB. */
+export async function downloadArchiveBuffer(
+  path: string,
+  client?: SupabaseClient,
+): Promise<Buffer> {
+  const supabase = client ?? createServiceClient();
+  const bucket = supabase.storage.from(BUCKET);
+  const { data: info, error: infoError } = await bucket.info(path);
+  if (infoError || !info || typeof info.size !== "number" || !Number.isFinite(info.size) || info.size < 0) {
+    throw new Error("archive file size is unavailable");
+  }
+  if (info.size > MAX_ARCHIVE_DOWNLOAD_BYTES) {
+    throw new Error("archive file exceeds the 6 MiB download limit");
+  }
+
+  const { data, error } = await bucket.download(path);
+  if (error || !data) throw new Error("archive download failed");
+  if (data.size > MAX_ARCHIVE_DOWNLOAD_BYTES) {
+    throw new Error("archive file exceeds the 6 MiB download limit");
+  }
+  const buffer = Buffer.from(await data.arrayBuffer());
+  if (buffer.byteLength > MAX_ARCHIVE_DOWNLOAD_BYTES) {
+    throw new Error("archive file exceeds the 6 MiB download limit");
+  }
+  return buffer;
 }
 
 /** List archived files for a month bucket (or all of them when `month` is null). */

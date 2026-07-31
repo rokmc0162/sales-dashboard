@@ -22,7 +22,41 @@ const SHEET_NAME_PATTERN = /^input_電子_\d{1,2}月$/;
 
 export type CompareField = keyof typeof ELECTRONIC_COL;
 export const COMPARE_FIELDS = Object.keys(ELECTRONIC_COL) as CompareField[];
-type InputColumnMap = Record<CompareField, number>;
+export type InputColumnMap = Record<CompareField, number>;
+
+export const EXCEL_MAX_COLUMN = 16_384;
+export const EXCEL_MAX_ROW = 1_048_576;
+
+/** Convert a bounded, 1-based Excel column number to its letter (1 -> A). */
+export function excelColumnLetter(column: number): string {
+  if (!Number.isInteger(column) || column < 1 || column > EXCEL_MAX_COLUMN) {
+    throw new Error(`Excel column must be an integer from 1 to ${EXCEL_MAX_COLUMN}`);
+  }
+  let value = column;
+  let result = "";
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
+}
+
+/** Build a bounded A1-style cell address from 1-based row/column numbers. */
+export function excelCellAddress(row: number, column: number): string {
+  if (!Number.isInteger(row) || row < 1 || row > EXCEL_MAX_ROW) {
+    throw new Error(`Excel row must be an integer from 1 to ${EXCEL_MAX_ROW}`);
+  }
+  return `${excelColumnLetter(column)}${row}`;
+}
+
+/** A1-style whole-row address used when a finding has no single column. */
+export function excelRowAddress(row: number): string {
+  if (!Number.isInteger(row) || row < 1 || row > EXCEL_MAX_ROW) {
+    throw new Error(`Excel row must be an integer from 1 to ${EXCEL_MAX_ROW}`);
+  }
+  return `${row}:${row}`;
+}
 
 // The 2026 v3 template inserted a blank G column. Historical answer keys use
 // the same schema with every field from company onward shifted one column left.
@@ -66,6 +100,8 @@ export interface InputRowSnapshot {
 
 export interface InputSheetSnapshot {
   sheetName: string;
+  /** Actual field columns for this workbook layout (v3, legacy, or publication). */
+  columns: InputColumnMap;
   rows: InputRowSnapshot[];
 }
 
@@ -242,5 +278,5 @@ function snapshotWorksheet(ws: ExcelJS.Worksheet, cols: InputColumnMap): InputSh
     rows.push({ rowNumber: r, identity, identityKey: identityKey(identity), cells });
   }
 
-  return { sheetName: ws.name, rows };
+  return { sheetName: ws.name, columns: { ...cols }, rows };
 }

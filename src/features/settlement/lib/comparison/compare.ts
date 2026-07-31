@@ -24,10 +24,13 @@ import type { Json } from "../supabase/types";
 import { normalizeIdentityPart, type RowIdentity } from "./identity";
 import {
   COMPARE_FIELDS,
+  excelCellAddress,
+  excelRowAddress,
   readInputSheet,
   type CellSnapshot,
   type CompareField,
   type InputRowSnapshot,
+  type InputSheetSnapshot,
 } from "./workbook";
 
 /**
@@ -66,6 +69,17 @@ export interface ComparisonDiffFinding {
   field: string | null;
   candidate: Json | null;
   golden: Json | null;
+  candidate_location: ComparisonLocation | null;
+  golden_location: ComparisonLocation | null;
+}
+
+export interface ComparisonLocation {
+  sheet: string;
+  row: number;
+  /** null for a whole-row missing/extra finding. */
+  column: number | null;
+  /** A1 cell address, or a whole-row address such as 7:7. */
+  address: string;
 }
 
 export interface ComparisonSummary {
@@ -429,6 +443,29 @@ function groupByIdentity(rows: InputRowSnapshot[]): Map<string, InputRowSnapshot
   return groups;
 }
 
+function rowLocation(sheet: InputSheetSnapshot, row: InputRowSnapshot): ComparisonLocation {
+  return {
+    sheet: sheet.sheetName,
+    row: row.rowNumber,
+    column: null,
+    address: excelRowAddress(row.rowNumber),
+  };
+}
+
+function cellLocation(
+  sheet: InputSheetSnapshot,
+  row: InputRowSnapshot,
+  field: CompareField,
+): ComparisonLocation {
+  const column = sheet.columns[field];
+  return {
+    sheet: sheet.sheetName,
+    row: row.rowNumber,
+    column,
+    address: excelCellAddress(row.rowNumber, column),
+  };
+}
+
 export interface CompareInputWorkbooksOptions {
   candidate: Buffer;
   golden: Buffer;
@@ -484,6 +521,8 @@ export async function compareInputWorkbooks(
         field: null,
         candidate: null,
         golden: rowDigest(golden),
+        candidate_location: null,
+        golden_location: rowLocation(goldenSheet, golden),
       });
     }
     for (const candidate of extra) {
@@ -494,6 +533,8 @@ export async function compareInputWorkbooks(
         field: null,
         candidate: rowDigest(candidate),
         golden: null,
+        candidate_location: rowLocation(candidateSheet, candidate),
+        golden_location: null,
       });
     }
 
@@ -513,6 +554,8 @@ export async function compareInputWorkbooks(
           field,
           candidate: snapshotJson(candidate.cells[field]),
           golden: snapshotJson(golden.cells[field]),
+          candidate_location: cellLocation(candidateSheet, candidate, field),
+          golden_location: cellLocation(goldenSheet, golden, field),
         });
       }
       if (exact) exactRows += 1;

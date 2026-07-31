@@ -321,6 +321,7 @@ export type ComparisonCommentAuthorType = "operator" | "hermes" | "system";
 export type SettlementComparisonDiffRow = {
   id: string;
   run_id: string;
+  diff_ordinal: number;
   category: ComparisonDiffCategory;
   identity_channel: string | null;
   identity_type: string | null;
@@ -340,6 +341,7 @@ export type SettlementComparisonDiffRow = {
 export type SettlementComparisonDiffInsert = {
   id?: string;
   run_id: string;
+  diff_ordinal: number;
   category: ComparisonDiffCategory;
   identity_channel?: string | null;
   identity_type?: string | null;

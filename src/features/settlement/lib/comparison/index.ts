@@ -1,13 +1,19 @@
 export { identityKey, normalizeIdentityPart, type RowIdentity } from "./identity";
 export {
   COMPARE_FIELDS,
+  EXCEL_MAX_COLUMN,
+  EXCEL_MAX_ROW,
   FIRST_DATA_ROW,
+  excelCellAddress,
+  excelColumnLetter,
+  excelRowAddress,
   readInputSheet,
   semanticScalar,
   type CellSnapshot,
   type CellState,
   type CompareField,
   type InputRowSnapshot,
+  type InputColumnMap,
   type InputSheetSnapshot,
   type SemanticValue,
 } from "./workbook";
@@ -17,6 +23,7 @@ export {
   type CompareInputWorkbooksOptions,
   type ComparisonDiffCategory,
   type ComparisonDiffFinding,
+  type ComparisonLocation,
   type ComparisonResult,
   type ComparisonSummary,
 } from "./compare";
@@ -40,3 +47,18 @@ export {
   type DiffInvestigationPatch,
   type DiffInvestigationValidation,
 } from "./investigation";
+export {
+  DEFAULT_WORKBOOK_REVIEW_CONTEXT_ROWS,
+  MAX_WORKBOOK_REVIEW_CELLS,
+  MAX_WORKBOOK_REVIEW_COLUMNS,
+  MAX_WORKBOOK_REVIEW_ROWS,
+  MAX_WORKBOOK_REVIEW_TEXT_LENGTH,
+  buildWorkbookReview,
+  workbookReviewFingerprint,
+  type BuildWorkbookReviewOptions,
+  type WorkbookReview,
+  type WorkbookReviewCell,
+  type WorkbookReviewColumn,
+  type WorkbookReviewOverlay,
+  type WorkbookReviewRow,
+} from "./workbook-review";

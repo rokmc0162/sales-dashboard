@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { useApp } from "@/context/AppContext";
+import AnswerWorkbookReview from "@/features/settlement/components/AnswerWorkbookReview";
 import InvestigationThread from "@/features/settlement/components/InvestigationThread";
 import {
   displayValue,
@@ -495,6 +496,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
     () => displayedFieldMismatchTotal(summary),
     [summary],
   );
+  const hasRunDiffs = totalDiffs > 0 || (summary?.diff_total ?? 0) > 0;
   const pageStart = totalDiffs === 0 ? 0 : offset + 1;
   const pageEnd = Math.min(offset + PAGE_SIZE, totalDiffs);
 
@@ -541,7 +543,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
     <div className="flex w-full flex-col gap-6">
       <div>
         <h2 className="text-lg font-bold text-slate-950 dark:text-white">
-          {t("사람 작업본과 시스템 정리본 비교", "人の作業版とシステム整理版の比較")} · {monthLabel}
+          {t("3. 정답지 올리기·엑셀에서 차이 검토", "3. 正解ファイルをアップロード・Excelで差分確認")} · {monthLabel}
         </h2>
       </div>
 
@@ -707,6 +709,14 @@ export default function SettlementCompareClient({ month }: { month: string }) {
         )}
       </section>
 
+      {run?.status === "completed" && hasRunDiffs ? (
+        <AnswerWorkbookReview key={run.id} runId={run.id} />
+      ) : null}
+
+      <details className="group">
+        <summary className="cursor-pointer rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100">
+          {t("상세 조사 목록 (Hermes·개발자용)", "詳細調査リスト（Hermes・開発者向け）")}
+        </summary>
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-bold text-slate-950 dark:text-white">{t("차이 목록", "差分一覧")}</h2>
@@ -1023,6 +1033,7 @@ export default function SettlementCompareClient({ month }: { month: string }) {
           </div>
         </div>
       </section>
+      </details>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between gap-2">

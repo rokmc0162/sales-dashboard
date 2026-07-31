@@ -13,5 +13,5 @@ export default async function SettlementComparePage({
 }) {
   const { month } = await params;
   if (!validMonth(month)) notFound();
-  redirect(`/settlement?month=${month}&tab=compare`);
+  redirect(`/settlement?month=${month}#answer-comparison`);
 }

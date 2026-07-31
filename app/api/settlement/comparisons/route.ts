@@ -204,8 +204,9 @@ export async function POST(request: Request) {
       diffs_truncated: comparisonSummary.diff_total > diffs.length,
     };
 
-    const diffRows: SettlementComparisonDiffInsert[] = diffs.map((d) => ({
+    const diffRows: SettlementComparisonDiffInsert[] = diffs.map((d, index) => ({
       run_id: run.id,
+      diff_ordinal: index,
       category: d.category,
       identity_channel: d.identity.channel || null,
       identity_type: d.identity.type || null,

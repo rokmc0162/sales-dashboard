@@ -5,7 +5,13 @@
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
 
-import { compareInputWorkbooks } from "../src/features/settlement/lib/comparison";
+import {
+  compareInputWorkbooks,
+  excelCellAddress,
+  excelColumnLetter,
+  excelRowAddress,
+  readInputSheet,
+} from "../src/features/settlement/lib/comparison";
 import { ELECTRONIC_COL } from "../src/features/settlement/lib/export/input-v2-filler";
 
 type Field = keyof typeof ELECTRONIC_COL;
@@ -103,6 +109,27 @@ function vectorRow(bits: readonly number[]): Row {
 }
 
 async function run() {
+  // Excel address helpers are bounded to the actual worksheet grid.
+  assert.equal(excelColumnLetter(1), "A");
+  assert.equal(excelColumnLetter(26), "Z");
+  assert.equal(excelColumnLetter(27), "AA");
+  assert.equal(excelColumnLetter(16_384), "XFD");
+  assert.equal(excelCellAddress(6, 26), "Z6");
+  assert.equal(excelRowAddress(6), "6:6");
+  assert.throws(() => excelColumnLetter(0), /Excel column/);
+  assert.throws(() => excelColumnLetter(16_385), /Excel column/);
+  assert.throws(() => excelCellAddress(0, 1), /Excel row/);
+  assert.throws(() => excelCellAddress(1_048_577, 1), /Excel row/);
+
+  // Snapshots expose an independent copy of the workbook's actual field map.
+  {
+    const snapshot = await readInputSheet(await makeWorkbook([baseRow()]));
+    assert.equal(snapshot.columns.before_tax_income_jpy, 26);
+    assert.notEqual(snapshot.columns, ELECTRONIC_COL);
+    snapshot.columns.before_tax_income_jpy = 1;
+    assert.equal(ELECTRONIC_COL.before_tax_income_jpy, 26);
+  }
+
   // 0. Multi-month answer workbooks keep historical sheets left-to-right;
   //    comparison must select the rightmost valid INPUT sheet.
   {
@@ -241,6 +268,31 @@ async function run() {
     assert.equal(missing.identity.title, "タイトルZ");
     assert.equal(missing.candidate, null);
     assert.ok(missing.golden, "missing diff carries a golden row digest");
+    assert.equal(missing.candidate_location, null);
+    assert.deepEqual(missing.golden_location, {
+      sheet: "input_電子_5月",
+      row: 7,
+      column: null,
+      address: "7:7",
+    });
+  }
+
+  // 3b. Extra rows carry their candidate row location only.
+  {
+    const extraOnly = baseRow({ channel_title_jp: "タイトルExtra" });
+    const result = await compareInputWorkbooks({
+      candidate: await makeWorkbook([baseRow(), extraOnly]),
+      golden: await makeWorkbook([baseRow()]),
+    });
+    const extra = result.diffs.find((d) => d.category === "extra");
+    assert.ok(extra, "extra diff must exist");
+    assert.deepEqual(extra.candidate_location, {
+      sheet: "input_電子_5月",
+      row: 7,
+      column: null,
+      address: "7:7",
+    });
+    assert.equal(extra.golden_location, null);
   }
 
   // 4. Uncached formula vs uncached formula: no diff, row exact — even with
@@ -427,6 +479,37 @@ async function run() {
     assert.equal(result.diffs[0].category, "field");
     assert.equal(result.diffs[0].field, "before_tax_income_jpy");
     assert.deepEqual(result.summary.field_mismatches, { before_tax_income_jpy: 1 });
+    assert.deepEqual(result.diffs[0].candidate_location, {
+      sheet: "input_電子_5月",
+      row: 6,
+      column: 26,
+      address: "Z6",
+    });
+    assert.deepEqual(result.diffs[0].golden_location, {
+      sheet: "input_電子_5月",
+      row: 6,
+      column: 26,
+      address: "Z6",
+    });
+  }
+
+  // 7b. Field locations use each workbook's actual columns across legacy shifts.
+  {
+    const result = await compareInputWorkbooks({
+      candidate: await makeWorkbook([baseRow({ before_tax_income_jpy: 600 })]),
+      golden: await makeMultiMonthWorkbook([
+        {
+          name: "input_電子_5月",
+          rows: [baseRow({ before_tax_income_jpy: 601 })],
+          legacy: true,
+        },
+      ]),
+    });
+    assert.equal(result.diffs[0].field, "before_tax_income_jpy");
+    assert.equal(result.diffs[0].candidate_location?.column, 26);
+    assert.equal(result.diffs[0].candidate_location?.address, "Z6");
+    assert.equal(result.diffs[0].golden_location?.column, 25);
+    assert.equal(result.diffs[0].golden_location?.address, "Y6");
   }
 
   // 8. Unidentifiable sheet fails clearly.
