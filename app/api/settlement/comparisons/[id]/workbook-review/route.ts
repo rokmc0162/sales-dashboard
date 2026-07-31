@@ -28,6 +28,15 @@ function summarySheetName(summary: Json | null, key: "candidate_sheet" | "golden
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
+function hasPersistedDiffOrdinals(summary: Json | null): boolean {
+  return Boolean(
+    summary
+      && typeof summary === "object"
+      && !Array.isArray(summary)
+      && summary.diff_ordinals === true,
+  );
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -53,9 +62,10 @@ export async function GET(
       return NextResponse.json({ error: "comparison artifacts not available" }, { status: 404 });
     }
 
+    const { supabaseServer: supabase } = await import("@/lib/supabase-server");
     const [goldenBuffer, candidateBuffer] = await Promise.all([
-      downloadArchiveBuffer(artifacts.answer_storage_path),
-      downloadArchiveBuffer(artifacts.candidate_storage_path),
+      downloadArchiveBuffer(artifacts.answer_storage_path, supabase),
+      downloadArchiveBuffer(artifacts.candidate_storage_path, supabase),
     ]);
     const candidateSheetName = summarySheetName(run.summary, "candidate_sheet");
     const goldenSheetName = summarySheetName(run.summary, "golden_sheet");
@@ -71,7 +81,9 @@ export async function GET(
       goldenSheetName,
       goldenSheetName !== undefined,
     );
-    const review = buildWorkbookReview(golden, comparison.diffs, persistedDiffs);
+    const review = buildWorkbookReview(golden, comparison.diffs, persistedDiffs, {
+      strictOrdinals: hasPersistedDiffOrdinals(run.summary),
+    });
     return NextResponse.json({ review });
   } catch (error) {
     console.error(

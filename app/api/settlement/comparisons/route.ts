@@ -202,6 +202,7 @@ export async function POST(request: Request) {
           : 0,
       persisted_diff_count: diffs.length,
       diffs_truncated: comparisonSummary.diff_total > diffs.length,
+      diff_ordinals: true,
     };
 
     const diffRows: SettlementComparisonDiffInsert[] = diffs.map((d, index) => ({

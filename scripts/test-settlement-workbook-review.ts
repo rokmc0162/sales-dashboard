@@ -144,7 +144,7 @@ function persisted(
       persisted(runtimeB, "duplicate-2", "resolved", {}, 1),
       persisted(runtimeA, "duplicate-1", "pending", {}, 0),
     ],
-    { contextRows: 0 },
+    { contextRows: 0, strictOrdinals: true },
   );
   const cell = review.rows[0]?.cells.find((item) => item.field === "total_amount_jpy");
   assert.deepEqual(cell?.overlays.map((overlay) => overlay.diff_id), ["duplicate-1", "duplicate-2"]);
@@ -180,7 +180,7 @@ function persisted(
     sheet([row(10)]),
     findings,
     persistedDiffs,
-    { contextRows: 0, maxRows: MAX_WORKBOOK_REVIEW_ROWS },
+    { contextRows: 0, maxRows: MAX_WORKBOOK_REVIEW_ROWS, strictOrdinals: true },
   );
   assert.equal(review.rows[0]?.kind, "answer");
   assert.equal(review.rows[0]?.row_overlays[0]?.diff_id, "crowded-400");
@@ -189,6 +189,21 @@ function persisted(
   assert.equal(review.total_relevant_rows, 401);
   assert.equal(review.rows_truncated, true);
   assert.equal(review.total_relevant_rows - review.rows.length, 401 - review.row_limit);
+}
+
+// Legacy runs map by the operator-facing identity/field even if historical JSON serialization drifted.
+{
+  const runtime = finding({ candidate: 125, golden: 100 });
+  const historical = persisted(runtime, "legacy-drift", "pending", {}, 0);
+  historical.candidate_value = { state: "value", value: "125" };
+  historical.golden_value = { state: "value", value: "100" };
+  const review = buildWorkbookReview(
+    sheet([row(10, { total_amount_jpy: 100 })]),
+    [runtime],
+    [historical],
+    { contextRows: 0 },
+  );
+  assert.equal(review.rows[0]?.cells.find((cell) => cell.field === "total_amount_jpy")?.overlays[0]?.diff_id, "legacy-drift");
 }
 
 // A field overlay sits on the exact answer cell and carries system value/status.
@@ -336,14 +351,14 @@ function persisted(
     () => buildWorkbookReview(golden, [runtimeA, runtimeB], [
       persisted(runtimeA, "ordinal-a", "pending", {}, 0),
       persisted(runtimeB, "ordinal-b", "pending", {}, 0),
-    ]),
+    ], { strictOrdinals: true }),
     /ordinals must be unique and contiguous/,
   );
   assert.throws(
     () => buildWorkbookReview(golden, [runtimeA, runtimeB], [
       persisted(runtimeB, "fingerprint-a", "pending", {}, 0),
       persisted(runtimeA, "fingerprint-b", "pending", {}, 1),
-    ]),
+    ], { strictOrdinals: true }),
     /fingerprint mismatch at ordinal 0/,
   );
 }

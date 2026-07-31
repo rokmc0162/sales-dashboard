@@ -83,6 +83,8 @@ export interface WorkbookReview {
 export interface BuildWorkbookReviewOptions {
   contextRows?: number;
   maxRows?: number;
+  /** New runs persist exact comparison order; legacy runs fall back to fingerprint queues. */
+  strictOrdinals?: boolean;
 }
 
 type FingerprintSource = {
@@ -170,12 +172,60 @@ function persistedFingerprint(diff: SettlementComparisonDiffRow): string {
   });
 }
 
+function legacyFindingKey(source: {
+  category: string;
+  identity: readonly [string | null, string | null, string | null];
+  field: string | null;
+}): string {
+  return canonicalJson([source.category, [...source.identity], source.field]);
+}
+
+function runtimeLegacyKey(finding: ComparisonDiffFinding): string {
+  return legacyFindingKey({
+    category: finding.category,
+    identity: [
+      finding.identity.channel || null,
+      finding.identity.type || null,
+      finding.identity.title || null,
+    ],
+    field: finding.field,
+  });
+}
+
+function persistedLegacyKey(diff: SettlementComparisonDiffRow): string {
+  return legacyFindingKey({
+    category: diff.category,
+    identity: [diff.identity_channel, diff.identity_type, diff.identity_title],
+    field: diff.field,
+  });
+}
+
 function mapPersistedDiffs(
   findings: readonly ComparisonDiffFinding[],
   persistedDiffs: readonly SettlementComparisonDiffRow[],
+  strictOrdinals: boolean,
 ): MappedFinding[] {
   if (persistedDiffs.length !== findings.length) {
     throw new Error("runtime and persisted comparison finding counts differ");
+  }
+
+  if (!strictOrdinals) {
+    const queues = new Map<string, SettlementComparisonDiffRow[]>();
+    for (const diff of persistedDiffs) {
+      const key = persistedLegacyKey(diff);
+      const queue = queues.get(key);
+      if (queue) queue.push(diff);
+      else queues.set(key, [diff]);
+    }
+    const mapped = findings.map((runtime) => {
+      const persisted = queues.get(runtimeLegacyKey(runtime))?.shift();
+      if (!persisted) throw new Error("unmapped legacy runtime comparison finding");
+      return { runtime, persisted };
+    });
+    if ([...queues.values()].some((queue) => queue.length > 0)) {
+      throw new Error("unmapped legacy persisted comparison finding");
+    }
+    return mapped;
   }
 
   const byOrdinal = new Map<number, SettlementComparisonDiffRow>();
@@ -334,7 +384,7 @@ export function buildWorkbookReview(
   );
   const cellBoundRows = Math.floor(MAX_WORKBOOK_REVIEW_CELLS / Math.max(1, columns.length));
   const rowLimit = Math.min(requestedRows, cellBoundRows);
-  const mapped = mapPersistedDiffs(findings, persistedDiffs);
+  const mapped = mapPersistedDiffs(findings, persistedDiffs, options.strictOrdinals ?? false);
   const goldenRowsByNumber = new Map(golden.rows.map((row) => [row.rowNumber, row]));
   const cellOverlays = new Map<number, Map<string, WorkbookReviewOverlay[]>>();
   const rowOverlays = new Map<number, WorkbookReviewOverlay[]>();
