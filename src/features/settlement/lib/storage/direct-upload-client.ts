@@ -11,6 +11,48 @@ type UploadResponse = {
   results: Array<Record<string, unknown>>;
 };
 
+export type SettlementJobFileStatus = {
+  position: number;
+  filename: string;
+  status: "queued" | "processing" | "completed" | "skipped" | "failed";
+  parsed_rows: number | null;
+  sales_records_written: number | null;
+  sales_records_skipped_duplicates: number | null;
+  result_summary: string | null;
+  error_summary: string | null;
+};
+
+export type SettlementJobStatus = {
+  id: string;
+  month: string;
+  status: "queued" | "claimed" | "processing" | "completed" | "completed_with_warnings" | "failed";
+  stage: "queued" | "parsing" | "workbook_generation" | "workbook_validation" | "completed";
+  progress: { current: number; total: number };
+  terminal: boolean;
+  result_summary: string | null;
+  error_summary: string | null;
+  workbook: { sheet_count: number | null; row_count: number | null };
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  files: SettlementJobFileStatus[];
+};
+
+export type SettlementJobEnqueueFile = {
+  upload_id: string;
+  position: number;
+  folder_hint?: string;
+};
+
+export const MAX_SETTLEMENT_JOB_FILES = 200;
+
+export function exceedsSettlementJobFileLimit(fileCount: number): boolean {
+  return fileCount > MAX_SETTLEMENT_JOB_FILES;
+}
+
+const DEFAULT_JOB_POLL_INTERVAL_MS = 2_000;
+const DEFAULT_JOB_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
+
 async function readJsonOrThrow<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -70,11 +112,11 @@ async function cleanupPreparedUpload(uploadId: string): Promise<void> {
   await fetch("/api/settlement/uploads/prepare", buildCleanupPreparedUploadRequest(uploadId)).catch(() => undefined);
 }
 
-export async function uploadSettlementFileDirect(
+/** Transfers bytes to private Storage and returns only the opaque upload id. */
+export async function uploadSettlementFileToStorage(
   file: File,
   activeMonth: string,
-  folderHint?: string,
-): Promise<UploadResponse> {
+): Promise<{ upload_id: string }> {
   const prepared = await fetch("/api/settlement/uploads/prepare", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -94,8 +136,102 @@ export async function uploadSettlementFileDirect(
     });
   if (uploadError) {
     await cleanupPreparedUpload(prepared.upload_id);
-    throw new Error(uploadError.message);
+    throw new Error("storage transfer failed");
   }
+
+  return { upload_id: prepared.upload_id };
+}
+
+export async function enqueueSettlementJob(
+  month: string,
+  files: SettlementJobEnqueueFile[],
+): Promise<{ job_id: string }> {
+  return fetch("/api/settlement/jobs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      month,
+      files: files.map((file) => ({
+        ...file,
+        folder_hint: cleanFolderHint(file.folder_hint),
+      })),
+    }),
+  }).then((response) => readJsonOrThrow<{ job_id: string }>(response));
+}
+
+export function fetchSettlementJobStatus(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<SettlementJobStatus> {
+  return fetch(`/api/settlement/jobs/${encodeURIComponent(jobId)}`, {
+    signal,
+    cache: "no-store",
+  }).then((response) => readJsonOrThrow<SettlementJobStatus>(response));
+}
+
+export function fetchLatestSettlementJob(
+  month: string,
+  signal?: AbortSignal,
+): Promise<SettlementJobStatus | null> {
+  return fetch(`/api/settlement/jobs?month=${encodeURIComponent(month)}`, {
+    signal,
+    cache: "no-store",
+  }).then((response) => readJsonOrThrow<SettlementJobStatus | null>(response));
+}
+
+function abortError(): Error {
+  const error = new Error("job polling aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function waitForNextPoll(delayMs: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(abortError());
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export async function pollSettlementJob(
+  jobId: string,
+  options: {
+    signal?: AbortSignal;
+    intervalMs?: number;
+    timeoutMs?: number;
+    onUpdate?: (job: SettlementJobStatus) => void;
+  } = {},
+): Promise<SettlementJobStatus> {
+  const intervalMs = options.intervalMs ?? DEFAULT_JOB_POLL_INTERVAL_MS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_JOB_POLL_TIMEOUT_MS;
+  if (!Number.isFinite(intervalMs) || intervalMs < 250) throw new Error("invalid polling interval");
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1_000) throw new Error("invalid polling timeout");
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (options.signal?.aborted) throw abortError();
+    const job = await fetchSettlementJobStatus(jobId, options.signal);
+    options.onUpdate?.(job);
+    if (job.terminal) return job;
+    const remaining = deadline - Date.now();
+    if (remaining > 0) await waitForNextPoll(Math.min(intervalMs, remaining), options.signal);
+  }
+  throw new Error("job polling timed out");
+}
+
+export async function uploadSettlementFileDirect(
+  file: File,
+  activeMonth: string,
+  folderHint?: string,
+): Promise<UploadResponse> {
+  const prepared = await uploadSettlementFileToStorage(file, activeMonth);
 
   return fetch("/api/settlement/upload", {
     method: "POST",

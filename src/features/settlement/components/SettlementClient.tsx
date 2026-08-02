@@ -4,7 +4,16 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type Inp
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, ExternalLink, FolderOpen, Loader2, UploadCloud, Trash2 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import SettlementCompareClient from '@/features/settlement/components/SettlementCompareClient';
-import { parentFolderHint, uploadSettlementFileDirect } from '@/features/settlement/lib/storage/direct-upload-client';
+import {
+  enqueueSettlementJob,
+  exceedsSettlementJobFileLimit,
+  fetchLatestSettlementJob,
+  MAX_SETTLEMENT_JOB_FILES,
+  parentFolderHint,
+  pollSettlementJob,
+  uploadSettlementFileToStorage,
+  type SettlementJobStatus,
+} from '@/features/settlement/lib/storage/direct-upload-client';
 
 type UploadResult = {
   file?: string;
@@ -51,29 +60,20 @@ function dedupeSelection(incoming: SelectedFile[]): SelectedFile[] {
 // React/TS don't type the non-standard directory-picker attributes; the cast keeps them on the DOM input.
 const folderInputProps = { webkitdirectory: '', directory: '' } as unknown as InputHTMLAttributes<HTMLInputElement>;
 
-type UploadRunFailure = { file: string; status: number | null; error: string };
-
-const UPLOAD_RUN_LOG_KEY = 'settlementUploadRuns';
-const UPLOAD_RUN_LOG_MAX = 5;
-
-// Keeps the last few upload run summaries in this browser (run id, counts,
-// failed file names/statuses/messages — never file contents or amounts) so
-// "what failed last time?" can still be answered after the page state is gone.
-function appendUploadRunLog(entry: {
-  runId: string;
-  at: string;
-  fileCount: number;
-  failCount: number;
-  failures: UploadRunFailure[];
-}) {
-  try {
-    const raw = window.localStorage.getItem(UPLOAD_RUN_LOG_KEY);
-    const prev: unknown = raw ? JSON.parse(raw) : [];
-    const list = Array.isArray(prev) ? prev : [];
-    window.localStorage.setItem(UPLOAD_RUN_LOG_KEY, JSON.stringify([...list, entry].slice(-UPLOAD_RUN_LOG_MAX)));
-  } catch {
-    // localStorage unavailable (private mode, quota) — the trace is best-effort.
-  }
+function jobResults(job: SettlementJobStatus, transferFailures: UploadResult[] = []): UploadResult[] {
+  return [
+    ...transferFailures,
+    ...job.files.map((file) => ({
+      file: file.filename,
+      parsed_rows: file.parsed_rows ?? undefined,
+      sales_records_written: file.sales_records_written ?? undefined,
+      sales_records_skipped_duplicates: file.sales_records_skipped_duplicates ?? undefined,
+      skipped: file.status === 'skipped',
+      skip_reason: file.status === 'skipped' ? (file.result_summary ?? 'skipped') : undefined,
+      error: file.status === 'failed' ? (file.error_summary ?? 'file processing failed') : undefined,
+      settlement_month: job.month,
+    })),
+  ];
 }
 
 // Chrome returns at most 100 entries per readEntries() call; keep reading until it comes back empty.
@@ -147,9 +147,12 @@ export default function SettlementClient({
   // traversal or upload is still running must be ignored, and `uploading`
   // state alone updates too late for that.
   const uploadingRef = useRef(false);
+  const busyOwnerRef = useRef<symbol | null>(null);
+  const activePollControllerRef = useRef<AbortController | null>(null);
   // Live upload gauge: files handed off so far (in-flight file included),
   // out of the run's total, plus the name currently being processed.
   const [progress, setProgress] = useState<{ current: number; total: number; currentFile: string } | null>(null);
+  const [jobStatus, setJobStatus] = useState<SettlementJobStatus | null>(null);
   const [resetting, setResetting] = useState(false);
   const [results, setResults] = useState<UploadResult[]>([]);
   // The detailed per-file table is tall; keep it collapsed so the summary
@@ -197,6 +200,83 @@ export default function SettlementClient({
     };
   }, [selectedYear, monthPlatformsVersion]);
 
+  useEffect(() => {
+    if (!validMonth) return;
+    const controller = new AbortController();
+    let disposed = false;
+    let owner: symbol | null = null;
+
+    const recover = async () => {
+      try {
+        const latest = await fetchLatestSettlementJob(toIsoMonth(month), controller.signal);
+        // A new upload may have acquired the busy lock while this lookup was
+        // in flight. Recovery must never replace that newer owner.
+        if (disposed || !latest || busyOwnerRef.current !== null) return;
+        setJobStatus(latest);
+        setResults(latest.terminal ? jobResults(latest) : []);
+        if (latest.terminal) {
+          setMessage(latest.status === 'completed'
+            ? t('최근 정산 작업이 완료되었습니다.', '直近の精算処理は完了しました。')
+            : t('최근 정산 작업 결과를 검토해 주세요.', '直近の精算処理結果をご確認ください。'));
+          return;
+        }
+
+        owner = Symbol("settlement-recovery");
+        activePollControllerRef.current?.abort();
+        activePollControllerRef.current = controller;
+        busyOwnerRef.current = owner;
+        uploadingRef.current = true;
+        setUploading(true);
+        setMessage(t('진행 중인 정산 작업을 복구했습니다.', '進行中の精算処理を復元しました。'));
+        const terminal = await pollSettlementJob(latest.id, {
+          signal: controller.signal,
+          onUpdate: (next) => {
+            if (disposed) return;
+            setJobStatus(next);
+            if (next.terminal) setResults(jobResults(next));
+          },
+        });
+        if (disposed) return;
+        if (terminal.status === 'completed' || terminal.status === 'completed_with_warnings') {
+          setMonthPlatformsVersion((version) => version + 1);
+        }
+        setMessage(terminal.status === 'completed'
+          ? t('정산 작업이 완료되었습니다.', '精算処理が完了しました。')
+          : t('정산 작업 결과를 검토해 주세요.', '精算処理結果をご確認ください。'));
+      } catch (error) {
+        if (!disposed && (error as Error).name !== 'AbortError') {
+          setMessage(t(
+            '작업 상태 확인 시간이 끝났습니다. 새로고침하면 진행 상태를 다시 불러옵니다.',
+            '処理状況の確認時間が終了しました。再読み込みすると進行状況を再取得します。',
+          ));
+        }
+      } finally {
+        if (!disposed && owner !== null
+          && activePollControllerRef.current === controller
+          && busyOwnerRef.current === owner) {
+          activePollControllerRef.current = null;
+          busyOwnerRef.current = null;
+          uploadingRef.current = false;
+          setUploading(false);
+        }
+      }
+    };
+
+    void recover();
+    return () => {
+      disposed = true;
+      controller.abort();
+      if (owner !== null
+        && activePollControllerRef.current === controller
+        && busyOwnerRef.current === owner) {
+        activePollControllerRef.current = null;
+        busyOwnerRef.current = null;
+        uploadingRef.current = false;
+        setUploading(false);
+      }
+    };
+  }, [month, t, validMonth]);
+
   const monthLabel = (yyyymm: string) =>
     t(`${Number(yyyymm.slice(0, 4))}년 ${Number(yyyymm.slice(4, 6))}월`, `${Number(yyyymm.slice(0, 4))}年${Number(yyyymm.slice(4, 6))}月`);
 
@@ -220,16 +300,23 @@ export default function SettlementClient({
 
   // Selecting or dropping files IS the upload: no staging list, no upload
   // button. Everything lands in the operator-picked settlement month.
-  async function startUpload(incoming: SelectedFile[], unreadable: number, lockAlreadyHeld = false) {
-    if (!lockAlreadyHeld) {
+  async function startUpload(incoming: SelectedFile[], unreadable: number, existingOwner?: symbol) {
+    let owner = existingOwner ?? null;
+    if (owner === null) {
       if (uploadingRef.current) {
         setMessage(t('업로드가 진행 중입니다. 끝난 뒤 다시 시도해 주세요.', 'アップロードが進行中です。完了後にもう一度お試しください。'));
         return;
       }
+      owner = Symbol("settlement-upload");
+      busyOwnerRef.current = owner;
       uploadingRef.current = true;
+    } else if (busyOwnerRef.current !== owner) {
+      return;
     }
     setUploading(true);
     const releaseBusy = () => {
+      if (busyOwnerRef.current !== owner) return;
+      busyOwnerRef.current = null;
       setUploading(false);
       uploadingRef.current = false;
     };
@@ -238,6 +325,14 @@ export default function SettlementClient({
       if (unreadable > 0) {
         setMessage(t(`읽을 수 있는 파일이 없습니다. (읽지 못한 항목 ${unreadable}개)`, `読み込めるファイルがありません。（読み込めなかった項目${unreadable}件）`));
       }
+      releaseBusy();
+      return;
+    }
+    if (exceedsSettlementJobFileLimit(selected.length)) {
+      setMessage(t(
+        `한 번에 최대 ${MAX_SETTLEMENT_JOB_FILES}개 파일만 업로드할 수 있습니다. 파일을 나누어 다시 선택해 주세요.`,
+        `一度にアップロードできるファイルは最大${MAX_SETTLEMENT_JOB_FILES}件です。分けて選択し直してください。`,
+      ));
       releaseBusy();
       return;
     }
@@ -251,104 +346,79 @@ export default function SettlementClient({
     const targetMonth = month;
     const targetIso = toIsoMonth(targetMonth);
     const targetLabel = monthLabel(targetMonth);
+    activePollControllerRef.current?.abort();
+    activePollControllerRef.current = null;
     setMessage(null);
     setResults([]);
     setResultsExpanded(false);
+    setJobStatus(null);
+    let ownedPollController: AbortController | null = null;
     try {
-      // Correlation id for this run: shown in failed rows, kept in the
-      // localStorage run log, and echoed by the server into Vercel function
-      // logs — the only way to match a body-less failure (504) to a request.
-      const uploadRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      const httpStatusByFile = new Map<string, number>();
-      const aggregated: UploadResult[] = [];
-
-      const recordFailure = (sf: SelectedFile, error: string, status: number | null = null) => {
-        const at = new Date().toISOString();
-        const suffix = [
-          `run ${uploadRunId}`,
-          ...(status !== null && !error.includes(`HTTP ${status}`) ? [`HTTP ${status}`] : []),
-          at,
-        ].join(' · ');
-        console.warn('[settlement-upload] batch failed', {
-          runId: uploadRunId,
-          at,
-          status,
-          files: [sf.relativePath],
-          error,
-        });
-        if (status !== null) httpStatusByFile.set(sf.relativePath, status);
-        aggregated.push({ file: sf.relativePath, error: `${error} [${suffix}]` });
-      };
-
-      let sentFiles = 0;
+      const transferred: Array<{ upload_id: string; position: number; folder_hint?: string }> = [];
+      const transferFailures: UploadResult[] = [];
       for (const sf of selected) {
-        setProgress({ current: sentFiles + 1, total: selected.length, currentFile: sf.relativePath });
+        setProgress({ current: transferred.length + transferFailures.length + 1, total: selected.length, currentFile: sf.relativePath });
         try {
-          // Each file's own parent folder — platform/deposit-date detection
-          // aid only; never used for month decisions.
-          const json = await uploadSettlementFileDirect(sf.file, targetIso, parentFolderHint(sf.relativePath));
-          if (Array.isArray(json.results)) aggregated.push(...json.results);
-        } catch (err) {
-          recordFailure(sf, (err as Error).message);
+          const uploaded = await uploadSettlementFileToStorage(sf.file, targetIso);
+          const folderHint = parentFolderHint(sf.relativePath);
+          transferred.push({
+            upload_id: uploaded.upload_id,
+            position: transferred.length,
+            ...(folderHint ? { folder_hint: folderHint } : {}),
+          });
+        } catch {
+          transferFailures.push({
+            file: sf.relativePath,
+            error: t('Storage 전송 실패', 'Storage転送失敗'),
+          });
         }
-        sentFiles += 1;
-        setResults([...aggregated]);
+        setResults([...transferFailures]);
       }
-      // Transfer is done; hide the gauge before the summary/preview phase.
       setProgress(null);
 
-      setResults(aggregated);
-      const failedRows = aggregated.filter((r) => r.error);
-      const skippedRows = aggregated.filter((r) => r.skipped);
-      const successfulRows = aggregated.filter((r) => !r.error && !r.skipped && ((r.sales_records_written ?? 0) > 0 || (r.sales_records_skipped_duplicates ?? 0) > 0));
-      const successCount = successfulRows.length;
-      appendUploadRunLog({
-        runId: uploadRunId,
-        at: new Date().toISOString(),
-        fileCount: selected.length,
-        failCount: failedRows.length,
-        failures: failedRows.slice(0, 10).map((r) => ({
-          file: r.file ?? '(unknown)',
-          status: r.file ? httpStatusByFile.get(r.file) ?? null : null,
-          error: r.error ?? '',
-        })),
-      });
-      // A partial failure never blocks the rest: successful files are already
-      // saved, so the preview is generated whenever at least one succeeded.
-      if (successCount === 0) {
+      if (transferred.length === 0) {
         setMessage(t(
-          skippedRows.length > 0
-            ? '저장된 정산행이 없습니다. 보조자료/비정산 파일은 건너뛰었고, 아래 결과에서 파일별 상태를 확인해 주세요.'
-            : '업로드 실패: 모든 파일 처리에 실패했습니다. 아래 결과에서 파일별 원인을 확인해 주세요.',
-          skippedRows.length > 0
-            ? '保存された精算行はありません。補助資料・非精算ファイルはスキップしました。下の結果でファイルごとの状態をご確認ください。'
-            : 'アップロード失敗: すべてのファイル処理に失敗しました。下の結果でファイルごとの原因をご確認ください。',
+          '업로드 실패: Storage 전송에 성공한 파일이 없습니다.',
+          'アップロード失敗: Storage転送に成功したファイルがありません。',
         ));
         return;
       }
-      // Rows were written — refresh the month/platform availability panel.
-      setMonthPlatformsVersion((v) => v + 1);
-      const parts: string[] = [
-        failedRows.length === 0
-          ? t(
-              `업로드 완료: 파일 ${successCount}개가 ${targetLabel} 정산월로 저장되었습니다.${skippedRows.length > 0 ? ` 보조/비정산 파일 ${skippedRows.length}개는 건너뛰었습니다.` : ''}`,
-              `アップロード完了: ファイル${successCount}件が${targetLabel}の精算月に保存されました。${skippedRows.length > 0 ? `補助・非精算ファイル${skippedRows.length}件はスキップしました。` : ''}`,
-            )
-          : t(
-              `파일 ${successCount}개는 ${targetLabel} 정산월로 저장되어 미리보기를 생성했습니다. 실패 ${failedRows.length}개, 건너뜀 ${skippedRows.length}개는 아래 결과에 표시됩니다.`,
-              `ファイル${successCount}件は${targetLabel}の精算月に保存され、プレビューを生成しました。失敗${failedRows.length}件、スキップ${skippedRows.length}件は下の結果に表示されます。`,
-            ),
-      ];
-      if (unreadable > 0) {
-        parts.push(t(`읽지 못한 항목 ${unreadable}개는 제외되었습니다.`, `読み込めなかった項目${unreadable}件は除外されました。`));
+
+      const enqueued = await enqueueSettlementJob(targetIso, transferred);
+      const controller = new AbortController();
+      ownedPollController = controller;
+      activePollControllerRef.current = controller;
+      setMessage(t(
+        `${targetLabel} 작업을 대기열에 등록했습니다.${transferFailures.length > 0 ? ` 전송 실패 ${transferFailures.length}개는 제외했습니다.` : ''}${unreadable > 0 ? ` 읽지 못한 항목 ${unreadable}개도 제외했습니다.` : ''}`,
+        `${targetLabel}の処理をキューに登録しました。${transferFailures.length > 0 ? `転送失敗${transferFailures.length}件は除外しました。` : ''}${unreadable > 0 ? `読み込めなかった項目${unreadable}件も除外しました。` : ''}`,
+      ));
+      const terminal = await pollSettlementJob(enqueued.job_id, {
+        signal: controller.signal,
+        onUpdate: (next) => {
+          setJobStatus(next);
+          setResults(next.terminal ? jobResults(next, transferFailures) : [...transferFailures]);
+        },
+      });
+      if (terminal.status === 'completed' || terminal.status === 'completed_with_warnings') {
+        setMonthPlatformsVersion((version) => version + 1);
       }
-      setMessage(parts.join(' '));
-    } catch (err) {
-      setMessage(`${t('업로드 실패', 'アップロード失敗')}: ${(err as Error).message}`);
+      setMessage(terminal.status === 'completed'
+        ? t(`${targetLabel} 정산 작업이 완료되었습니다.`, `${targetLabel}の精算処理が完了しました。`)
+        : t(`${targetLabel} 정산 작업 결과를 검토해 주세요.`, `${targetLabel}の精算処理結果をご確認ください。`));
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        setMessage(t(
+          '정산 작업을 계속 확인할 수 없습니다. 전송된 파일은 다시 올리지 말고, 새로고침하여 작업 상태를 확인해 주세요.',
+          '精算処理の確認を継続できません。転送済みファイルは再アップロードせず、再読み込みして処理状況をご確認ください。',
+        ));
+      }
     } finally {
+      if (ownedPollController !== null
+        && activePollControllerRef.current === ownedPollController) {
+        activePollControllerRef.current = null;
+      }
       setProgress(null);
-      setUploading(false);
-      uploadingRef.current = false;
+      releaseBusy();
     }
   }
 
@@ -380,6 +450,8 @@ export default function SettlementClient({
       setMessage(t('업로드가 진행 중입니다. 끝난 뒤 다시 시도해 주세요.', 'アップロードが進行中です。完了後にもう一度お試しください。'));
       return;
     }
+    const owner = Symbol("settlement-drop");
+    busyOwnerRef.current = owner;
     uploadingRef.current = true;
     setUploading(true);
     try {
@@ -404,11 +476,17 @@ export default function SettlementClient({
           collected.push({ file, relativePath: file.name });
         }
       }
-      await startUpload(collected, unreadable, true);
-    } catch (err) {
-      setMessage(`${t('업로드 실패', 'アップロード失敗')}: ${(err as Error).message}`);
-      setUploading(false);
-      uploadingRef.current = false;
+      await startUpload(collected, unreadable, owner);
+    } catch {
+      setMessage(t(
+        '업로드를 시작하지 못했습니다. 다시 시도해 주세요.',
+        'アップロードを開始できませんでした。もう一度お試しください。',
+      ));
+      if (busyOwnerRef.current === owner) {
+        busyOwnerRef.current = null;
+        setUploading(false);
+        uploadingRef.current = false;
+      }
     }
   }
 
@@ -446,7 +524,39 @@ export default function SettlementClient({
   const successfulResults = results.filter((r) => !r.error && !r.skipped && ((r.sales_records_written ?? 0) > 0 || (r.sales_records_skipped_duplicates ?? 0) > 0));
   const parsedRowsTotal = results.reduce((sum, r) => sum + (r.parsed_rows ?? 0), 0);
   const salesRowsTotal = results.reduce((sum, r) => sum + (r.sales_records_written ?? 0), 0);
-  const progressPercent = progress ? Math.min(100, Math.round((progress.current / Math.max(progress.total, 1)) * 100)) : 0;
+  const phaseIndex = progress
+    ? 0
+    : !jobStatus
+      ? 0
+      : jobStatus.terminal
+        ? 4
+        : jobStatus.stage === 'parsing'
+          ? 2
+          : jobStatus.stage === 'workbook_generation' || jobStatus.stage === 'workbook_validation'
+            ? 3
+            : 1;
+  const phaseLabels = [
+    t('업로드', 'アップロード'),
+    t('대기', '待機'),
+    t(`파싱 ${jobStatus?.progress.current ?? 0}/${jobStatus?.progress.total ?? 0}`, `解析 ${jobStatus?.progress.current ?? 0}/${jobStatus?.progress.total ?? 0}`),
+    t('Excel 검증', 'Excel検証'),
+    jobStatus?.terminal
+      ? jobStatus.status === 'completed'
+        ? t('완료', '完了')
+        : t('검토 필요', '要確認')
+      : t('완료/검토 필요', '完了/要確認'),
+  ];
+  const progressPercent = progress
+    ? Math.min(100, Math.round((progress.current / Math.max(progress.total, 1)) * 100))
+    : jobStatus
+      ? phaseIndex === 4
+        ? 100
+        : phaseIndex === 3
+          ? 90
+          : phaseIndex === 2
+            ? Math.min(85, 20 + Math.round((jobStatus.progress.current / Math.max(jobStatus.progress.total, 1)) * 60))
+            : 15
+      : 0;
   const pickerButtonBase = 'rounded-xl py-3 text-base font-bold transition disabled:cursor-not-allowed disabled:opacity-40';
 
   return (
@@ -579,13 +689,13 @@ export default function SettlementClient({
             )}
             <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
               {uploading
-                ? t('업로드 진행 중입니다…', 'アップロード進行中です…')
+                ? t('정산 작업 진행 중입니다…', '精算処理が進行中です…')
                 : t('파일이나 폴더를 여기에 놓으면 바로 업로드가 시작됩니다', 'ファイルやフォルダをここにドロップすると、すぐにアップロードが始まります')}
             </span>
             <span className="mt-1 text-xs text-slate-500">
               {t(
-                `놓는 즉시 ${monthLabel(month)} 정산월로 파싱·저장됩니다. 별도의 업로드 버튼은 없으며, 일부 파일이 실패해도 나머지는 저장됩니다.`,
-                `ドロップすると、すぐに${monthLabel(month)}の精算月として解析・保存されます。別途アップロードボタンはなく、一部のファイルが失敗しても残りは保存されます。`,
+                `놓는 즉시 ${monthLabel(month)} 정산월로 전송되고 작업 대기열에 등록됩니다. 일부 파일의 전송이 실패해도 성공한 파일은 처리됩니다.`,
+                `ドロップすると、すぐに${monthLabel(month)}の精算月として転送され、処理キューに登録されます。一部の転送に失敗しても、成功したファイルは処理されます。`,
               )}
             </span>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -639,19 +749,30 @@ export default function SettlementClient({
         </div>
       </section>
 
-      {progress && (
+      {(progress || jobStatus) && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm dark:border-blue-900 dark:bg-blue-950/40">
           <div className="flex items-center text-sm font-semibold text-blue-900 dark:text-blue-100">
-            <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
-            {t(
-              `처리중 ${progress.current}/${progress.total} · ${progressPercent}%`,
-              `処理中 ${progress.current}/${progress.total} · ${progressPercent}%`,
+            {phaseIndex < 4 ? (
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
+            ) : jobStatus?.status === 'completed' ? (
+              <CheckCircle2 className="mr-2 h-4 w-4 shrink-0 text-emerald-600" />
+            ) : (
+              <AlertCircle className="mr-2 h-4 w-4 shrink-0 text-amber-600" />
             )}
+            {phaseLabels[phaseIndex]} · {progressPercent}%
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+            {phaseLabels.map((label, index) => (
+              <span key={index} className={index === phaseIndex ? 'text-blue-800 dark:text-blue-200' : index < phaseIndex ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-400'}>
+                {index > 0 && <span className="mr-1.5 text-slate-300 dark:text-slate-600">→</span>}
+                {label}
+              </span>
+            ))}
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100 dark:bg-blue-900/60">
             <div className="h-full rounded-full bg-blue-600 transition-[width] duration-300" style={{ width: `${progressPercent}%` }} />
           </div>
-          <p className="mt-2 break-all text-xs text-blue-800 dark:text-blue-200">{progress.currentFile}</p>
+          {progress && <p className="mt-2 break-all text-xs text-blue-800 dark:text-blue-200">{progress.currentFile}</p>}
         </div>
       )}
 

@@ -13,6 +13,8 @@
  * the DB was queried successfully — zero records is then a genuine "no data"
  * case (404 at the route level).
  */
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import {
   carryForwardRecordKey,
   loadCarryForwardBaselineRowsFromBuffer,
@@ -48,6 +50,8 @@ export type LoadInputV2RecordsOptions = {
    * default false so missing source families remain a 409 conflict.
    */
   allowIncompleteSources?: boolean;
+  /** Worker-only injection for the existing anon-authorized monthly data pipeline. */
+  supabase?: SupabaseClient;
 };
 
 /** Current-batch raw_uploads projection used by the source-family gate. */
@@ -291,7 +295,7 @@ export async function loadInputV2Records(
   loadError: InputV2LoadError | null;
   sourceWarnings: InputV2SourceWarning[];
 }> {
-  const missingEnv = [
+  const missingEnv = options.supabase ? [] : [
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   ].filter((name) => !process.env[name]);
@@ -314,7 +318,7 @@ export async function loadInputV2Records(
     // otherwise fall back to the normal server anon client. Preview/export are
     // protected by the dashboard cookie before this loader runs, so lack of a
     // service key should not make a healthy Vercel deployment look broken.
-    const { supabaseServer: supabase } = await import("@/lib/supabase-server");
+    const supabase = options.supabase ?? (await import("@/lib/supabase-server")).supabaseServer;
     const batchIso = `${month.slice(0, 4)}-${month.slice(4, 6)}-01`;
     const PAGE = 1000;
     const all: Record<string, unknown>[] = [];

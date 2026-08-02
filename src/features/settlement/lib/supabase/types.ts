@@ -227,6 +227,110 @@ export type RawRecordInsert = {
   created_at?: string;
 }
 
+export type SettlementJobStatus =
+  | "queued"
+  | "claimed"
+  | "processing"
+  | "completed"
+  | "completed_with_warnings"
+  | "failed";
+
+export type SettlementJobTerminalStatus = Extract<
+  SettlementJobStatus,
+  "completed" | "completed_with_warnings" | "failed"
+>;
+
+export type SettlementJobStage =
+  | "queued"
+  | "parsing"
+  | "workbook_generation"
+  | "workbook_validation"
+  | "completed";
+
+export type SettlementJobRow = {
+  id: string;
+  month: string;
+  status: SettlementJobStatus;
+  stage: SettlementJobStage;
+  progress_current: number;
+  progress_total: number;
+  worker_id: string | null;
+  lease_expires_at: string | null;
+  heartbeat_at: string | null;
+  parser_version: string | null;
+  rule_version: string | null;
+  error_summary: string | null;
+  result_summary: string | null;
+  artifact_storage_path: string | null;
+  workbook_sheet_count: number | null;
+  workbook_row_count: number | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type SettlementJobInsert = {
+  id?: string;
+  month: string;
+  status?: SettlementJobStatus;
+  stage?: SettlementJobStage;
+  progress_current?: number;
+  progress_total: number;
+  worker_id?: string | null;
+  lease_expires_at?: string | null;
+  heartbeat_at?: string | null;
+  parser_version?: string | null;
+  rule_version?: string | null;
+  error_summary?: string | null;
+  result_summary?: string | null;
+  artifact_storage_path?: string | null;
+  workbook_sheet_count?: number | null;
+  workbook_row_count?: number | null;
+  created_at?: string;
+  updated_at?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+};
+
+export type SettlementJobFileStatus = "queued" | "processing" | "completed" | "skipped" | "failed";
+
+export type SettlementJobFileRow = {
+  id: string;
+  job_id: string;
+  upload_id: string;
+  position: number;
+  folder_hint: string | null;
+  status: SettlementJobFileStatus;
+  parsed_rows: number | null;
+  sales_records_written: number | null;
+  sales_records_skipped_duplicates: number | null;
+  result_summary: string | null;
+  error_summary: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type SettlementJobFileInsert = {
+  id?: string;
+  job_id: string;
+  upload_id: string;
+  position: number;
+  folder_hint?: string | null;
+  status?: SettlementJobFileStatus;
+  parsed_rows?: number | null;
+  sales_records_written?: number | null;
+  sales_records_skipped_duplicates?: number | null;
+  result_summary?: string | null;
+  error_summary?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+};
+
 // sales_records has 60+ columns — factored below
 
 export type MgBalanceRow = {
@@ -666,6 +770,18 @@ export type Database = {
         Update: Partial<SettlementComparisonDiffInsert>;
         Relationships: [];
       };
+      settlement_jobs: {
+        Row: SettlementJobRow;
+        Insert: SettlementJobInsert;
+        Update: Partial<SettlementJobInsert>;
+        Relationships: [];
+      };
+      settlement_job_files: {
+        Row: SettlementJobFileRow;
+        Insert: SettlementJobFileInsert;
+        Update: Partial<SettlementJobFileInsert>;
+        Relationships: [];
+      };
     };
     Views: {
       v_monthly_summary: {
@@ -691,7 +807,52 @@ export type Database = {
         Relationships: [];
       };
     };
-    Functions: { [K in never]: never };
+    Functions: {
+      enqueue_settlement_job: {
+        Args: {
+          p_month: string;
+          p_files: Json;
+          p_parser_version?: string | null;
+          p_rule_version?: string | null;
+        };
+        Returns: string;
+      };
+      claim_settlement_job: {
+        Args: { p_worker_id: string; p_lease_seconds?: number };
+        Returns: SettlementJobRow[];
+      };
+      heartbeat_settlement_job: {
+        Args: {
+          p_job_id: string;
+          p_worker_id: string;
+          p_lease_seconds: number;
+          p_stage: SettlementJobStage;
+          p_progress_current: number;
+          p_progress_total: number;
+        };
+        Returns: boolean;
+      };
+      release_settlement_job: {
+        Args: {
+          p_job_id: string;
+          p_worker_id: string;
+        };
+        Returns: boolean;
+      };
+      finish_settlement_job: {
+        Args: {
+          p_job_id: string;
+          p_worker_id: string;
+          p_status: SettlementJobStatus;
+          p_error_summary?: string | null;
+          p_result_summary?: string | null;
+          p_artifact_storage_path?: string | null;
+          p_workbook_sheet_count?: number | null;
+          p_workbook_row_count?: number | null;
+        };
+        Returns: boolean;
+      };
+    };
     Enums: { [K in never]: never };
     CompositeTypes: { [K in never]: never };
   };

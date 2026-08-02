@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState } from 'react';
+import { createContext, useCallback, useContext, useState } from 'react';
 import type { ReactNode } from 'react';
 
 type Language = 'ko' | 'ja';
@@ -27,15 +27,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [currency, setCurrency] = useState<Currency>('JPY');
   const [theme, setTheme] = useState<Theme>('light');
 
-  const t = (ko: string, ja: string) => (lang === 'ko' ? ko : ja);
+  const t = useCallback((ko: string, ja: string) => (lang === 'ko' ? ko : ja), [lang]);
 
-  const formatCurrency = (amountJPY: number) => {
+  const formatCurrency = useCallback((amountJPY: number) => {
     if (currency === 'KRW') {
       const krw = Math.round(amountJPY * JPY_TO_KRW);
       return `\u20A9${krw.toLocaleString()}`;
     }
     return `\u00A5${Math.round(amountJPY).toLocaleString()}`;
-  };
+  }, [currency]);
 
   return (
     <AppContext.Provider
