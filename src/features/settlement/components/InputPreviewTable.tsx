@@ -36,6 +36,7 @@ export type PreviewData = {
   publicationRows: number;
   generatedAt: string;
   sheets: PreviewSheet[];
+  sourceWarnings?: string[];
 };
 
 type InputPreviewTableProps = {
@@ -289,7 +290,7 @@ export default function InputPreviewTable({ preview, activeSheet, onSheetChange 
   return (
     <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex shrink-0 flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-bold text-slate-950 dark:text-white">{t('INPUT 미리보기', 'INPUT プレビュー')}</h2>
+        <h2 className="text-lg font-bold text-slate-950 dark:text-white">{t('현재 정산 데이터', '現在の精算データ')}</h2>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
           <span>{t('생성', '生成')}: {formatGeneratedAt(preview.generatedAt)}</span>
           <span>
@@ -420,4 +421,3 @@ export default function InputPreviewTable({ preview, activeSheet, onSheetChange 
     </section>
   );
 }
-

@@ -76,8 +76,13 @@ export default function InputPreviewWindow({ month }: { month: string }) {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-600">Settlement</p>
           <h1 className="mt-1 text-xl font-bold text-slate-950 dark:text-white">
-            {t(`${monthLabel} INPUT Excel 미리보기`, `${monthLabel} INPUT Excel プレビュー`)}
+            {t(`${monthLabel} 현재 정산 데이터`, `${monthLabel} 現在の精算データ`)}
           </h1>
+          {preview && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {t(`정산 행 ${preview.rowsWritten}개 · 시트 ${preview.sheets.length}개`, `精算行 ${preview.rowsWritten}件・シート ${preview.sheets.length}件`)}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-3">
           <button
@@ -89,12 +94,20 @@ export default function InputPreviewWindow({ month }: { month: string }) {
             {t('새로고침', '更新')}
           </button>
           <a
+            href={`/api/settlement/export-current/${normalizedMonth}.xlsx`}
+            download={`JP_INPUT_CURRENT_${normalizedMonth}.xlsx`}
+            className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {t('현재 파싱본 Excel 다운로드', '現在の解析版Excelをダウンロード')}
+          </a>
+          <a
             href={`/api/settlement/export-v2/${normalizedMonth}.xlsx`}
             download={`JP_INPUT_V2_${normalizedMonth}.xlsx`}
             className="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 dark:border-slate-700 dark:text-slate-100"
           >
             <Download className="mr-2 h-4 w-4" />
-            {t('Excel 다운로드', 'Excel ダウンロード')}
+            {t('완전성 검사 후 최종 Excel', '完全性検査後の最終Excel')}
           </a>
         </div>
       </header>
@@ -117,6 +130,16 @@ export default function InputPreviewWindow({ month }: { month: string }) {
       {error?.kind === 'failed' && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 shadow-sm dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {t('미리보기 실패', 'プレビュー失敗')}: {error.message}
+        </div>
+      )}
+
+      {preview && (preview.sourceWarnings?.length ?? 0) > 0 && (
+        <div className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-900 shadow-sm dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          {t(
+            `필수 소스 ${preview.sourceWarnings?.length ?? 0}개가 누락되었거나 처리되지 않았습니다. 현재 파싱본은 검토용이며 최종 정산서가 아닙니다.`,
+            `必須ソース${preview.sourceWarnings?.length ?? 0}件が不足しているか、処理されていません。現在の解析版は確認用であり、最終精算書ではありません。`,
+          )}
+          <span className="ml-1 font-semibold">({preview.sourceWarnings?.join(', ')})</span>
         </div>
       )}
 

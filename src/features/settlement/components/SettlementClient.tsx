@@ -39,6 +39,13 @@ type ResetResult = Record<string, unknown> & { ok?: boolean; error?: string };
 // One platform that already has settlement rows in a month — names only, no amounts/counts.
 type MonthPlatform = { code: string | null; name: string | null };
 
+type CurrentDataStatus = {
+  month: string;
+  recordCount: number;
+  warningCount: number;
+  isComplete: boolean;
+};
+
 function toIsoMonth(yyyymm: string) {
   return `${yyyymm.slice(0, 4)}-${yyyymm.slice(4, 6)}-01`;
 }
@@ -165,6 +172,10 @@ export default function SettlementClient({
   const [monthPlatforms, setMonthPlatforms] = useState<Record<string, MonthPlatform[]> | null>(null);
   const [monthPlatformsLoading, setMonthPlatformsLoading] = useState(false);
   const [monthPlatformsVersion, setMonthPlatformsVersion] = useState(0);
+  const [currentStatus, setCurrentStatus] = useState<CurrentDataStatus | null>(null);
+  const [currentStatusLoading, setCurrentStatusLoading] = useState(false);
+  const [currentStatusError, setCurrentStatusError] = useState(false);
+  const [currentStatusVersion, setCurrentStatusVersion] = useState(0);
 
   const validMonth = /^\d{6}$/.test(month);
   const selectedYear = Number(month.slice(0, 4));
@@ -199,6 +210,46 @@ export default function SettlementClient({
       cancelled = true;
     };
   }, [selectedYear, monthPlatformsVersion]);
+
+  useEffect(() => {
+    if (!validMonth) {
+      setCurrentStatus(null);
+      setCurrentStatusLoading(false);
+      setCurrentStatusError(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setCurrentStatus(null);
+    setCurrentStatusLoading(true);
+    setCurrentStatusError(false);
+
+    fetch(`/api/settlement/current-status/${month}`, { signal: controller.signal })
+      .then(async (res) => {
+        const json = (await res.json().catch(() => ({}))) as Partial<CurrentDataStatus>;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (json.month !== month
+          || typeof json.recordCount !== 'number'
+          || typeof json.warningCount !== 'number'
+          || typeof json.isComplete !== 'boolean') {
+          throw new Error('invalid current status response');
+        }
+        return json as CurrentDataStatus;
+      })
+      .then((status) => {
+        if (!controller.signal.aborted) setCurrentStatus(status);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted && (error as Error).name !== 'AbortError') {
+          setCurrentStatusError(true);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCurrentStatusLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [currentStatusVersion, month, validMonth]);
 
   useEffect(() => {
     if (!validMonth) return;
@@ -240,6 +291,7 @@ export default function SettlementClient({
         if (terminal.status === 'completed' || terminal.status === 'completed_with_warnings') {
           setMonthPlatformsVersion((version) => version + 1);
         }
+        setCurrentStatusVersion((version) => version + 1);
         setMessage(terminal.status === 'completed'
           ? t('정산 작업이 완료되었습니다.', '精算処理が完了しました。')
           : t('정산 작업 결과를 검토해 주세요.', '精算処理結果をご確認ください。'));
@@ -402,6 +454,7 @@ export default function SettlementClient({
       if (terminal.status === 'completed' || terminal.status === 'completed_with_warnings') {
         setMonthPlatformsVersion((version) => version + 1);
       }
+      setCurrentStatusVersion((version) => version + 1);
       setMessage(terminal.status === 'completed'
         ? t(`${targetLabel} 정산 작업이 완료되었습니다.`, `${targetLabel}の精算処理が完了しました。`)
         : t(`${targetLabel} 정산 작업 결과를 검토해 주세요.`, `${targetLabel}の精算処理結果をご確認ください。`));
@@ -512,6 +565,7 @@ export default function SettlementClient({
       setMessage(`${t('초기화 완료', '初期化完了')}: sales_records ${String(json.sales_records_deleted ?? 0)}${t('건 삭제', '件を削除')}`);
       setResults([]);
       setMonthPlatformsVersion((v) => v + 1);
+      setCurrentStatusVersion((v) => v + 1);
     } catch (err) {
       setMessage(`${t('초기화 실패', '初期化失敗')}: ${(err as Error).message}`);
     } finally {
@@ -713,23 +767,6 @@ export default function SettlementClient({
           </div>
 
           <div className="mt-4 flex flex-wrap gap-3">
-            <a
-              href={validMonth ? `/api/settlement/export-v2/${month}.xlsx` : undefined}
-              download={validMonth ? `JP_INPUT_V2_${month}.xlsx` : undefined}
-              className={`inline-flex items-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold dark:border-slate-700 ${validMonth ? 'text-slate-800 dark:text-slate-100' : 'pointer-events-none opacity-50'}`}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              {t('최종 INPUT Excel 다운로드', '最終 INPUT Excel ダウンロード')}
-            </a>
-            <button
-              type="button"
-              onClick={openPreviewWindow}
-              disabled={!validMonth}
-              className="inline-flex items-center rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 transition hover:border-blue-500 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950"
-            >
-              <ExternalLink className="mr-2 h-4 w-4" />
-              {t('INPUT Excel 미리보기 열기', 'INPUT Excel プレビューを開く')}
-            </button>
             <button
               onClick={resetMonth}
               disabled={!validMonth || resetting || uploading}
@@ -740,13 +777,95 @@ export default function SettlementClient({
             </button>
           </div>
 
-          <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
-            {t(
-              '미리보기는 아래에 붙지 않고 별도 창에서 Excel 파일처럼 열립니다.',
-              'プレビューは下に表示せず、別ウィンドウでExcelファイルのように開きます。',
-            )}
-          </p>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-sm font-bold text-slate-950 dark:text-white">
+          {t('3. 현재 정산 데이터', '3. 現在の精算データ')}
+        </h2>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          {t(
+            '선택한 달에 현재 파싱되어 있는 데이터만 집계해 표시합니다.',
+            '選択した月に現在解析済みのデータのみを集計して表示します。',
+          )}
+        </p>
+
+        {currentStatusLoading ? (
+          <p className="mt-4 flex items-center text-sm text-slate-500 dark:text-slate-400">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {t('현재 데이터 현황을 불러오는 중입니다…', '現在のデータ状況を読み込んでいます…')}
+          </p>
+        ) : currentStatusError ? (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+            {t('현재 데이터 현황을 불러오지 못했습니다.', '現在のデータ状況を読み込めませんでした。')}
+          </div>
+        ) : currentStatus && currentStatus.recordCount === 0 ? (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+            {t('이 달에는 현재 파싱된 정산 데이터가 없습니다.', 'この月には現在解析済みの精算データがありません。')}
+          </div>
+        ) : currentStatus ? (
+          <>
+            <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                {t(`정산 행 ${currentStatus.recordCount}개`, `精算行 ${currentStatus.recordCount}件`)}
+              </span>
+              <span className={`rounded-full px-3 py-1.5 ${currentStatus.isComplete ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'}`}>
+                {currentStatus.isComplete
+                  ? t('필수 소스 확인 완료', '必須ソース確認完了')
+                  : t(`필수 소스 경고 ${currentStatus.warningCount}개`, `必須ソース警告 ${currentStatus.warningCount}件`)}
+              </span>
+            </div>
+
+            {currentStatus.isComplete ? (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+                {t('필수 소스 완전성 검사를 통과했습니다.', '必須ソースの完全性検査に合格しました。')}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-relaxed text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                <AlertCircle className="mr-1.5 inline h-4 w-4 align-[-2px]" />
+                {t(
+                  `필수 소스 ${currentStatus.warningCount}개가 누락되었거나 처리되지 않았습니다. 현재 파싱본은 검토용이며 최종 정산서가 아닙니다.`,
+                  `必須ソース${currentStatus.warningCount}件が不足しているか、処理されていません。現在の解析版は確認用であり、最終精算書ではありません。`,
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href={`/api/settlement/export-current/${month}.xlsx`}
+                download={`JP_INPUT_CURRENT_${month}.xlsx`}
+                className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                {t('현재 파싱본 Excel 다운로드', '現在の解析版Excelをダウンロード')}
+              </a>
+              <button
+                type="button"
+                onClick={openPreviewWindow}
+                className="inline-flex items-center rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 transition hover:border-blue-500 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950"
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                {t('현재 정산 데이터 보기', '現在の精算データを表示')}
+              </button>
+              <a
+                href={currentStatus.isComplete ? `/api/settlement/export-v2/${month}.xlsx` : undefined}
+                download={currentStatus.isComplete ? `JP_INPUT_V2_${month}.xlsx` : undefined}
+                aria-disabled={!currentStatus.isComplete}
+                className={`inline-flex items-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold dark:border-slate-700 ${currentStatus.isComplete ? 'text-slate-800 dark:text-slate-100' : 'pointer-events-none opacity-50'}`}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                {t('완전성 검사 후 최종 Excel', '完全性検査後の最終Excel')}
+              </a>
+            </div>
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+              {t(
+                '미리보기는 아래에 붙지 않고 별도 창에서 Excel 파일처럼 열립니다.',
+                'プレビューは下に表示せず、別ウィンドウでExcelファイルのように開きます。',
+              )}
+            </p>
+          </>
+        ) : null}
       </section>
 
       {(progress || jobStatus) && (
