@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   CARRY_FORWARD_PROVENANCE_FIELD,
+  cellValue,
   stripShueishaOcrTitleMarker,
 } from "./input-v2-carry-forward";
 import { splitInputV2Records } from "./input-v2-routing";
@@ -169,17 +170,9 @@ export interface InputV2FillResult {
 
 function pick(r: Record<string, unknown>, ...keys: string[]): Prim {
   for (const k of keys) {
-    const x = r[k];
-    if (x === null || x === undefined || x === "") continue;
-    if (
-      typeof x === "string" ||
-      typeof x === "number" ||
-      typeof x === "boolean" ||
-      x instanceof Date
-    ) {
-      return x;
-    }
-    return String(x);
+    const value = cellValue(r[k]);
+    if (value === null || value === "") continue;
+    return value;
   }
   return null;
 }

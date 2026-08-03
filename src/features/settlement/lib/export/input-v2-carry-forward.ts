@@ -173,7 +173,7 @@ export interface CarryForwardResult extends CarryForwardCounts {
   records: Record<string, unknown>[];
 }
 
-function cellValue(value: ExcelJS.CellValue): Prim {
+export function cellValue(value: unknown): Prim {
   if (value === null || value === undefined) return null;
   if (
     typeof value === "string" ||
@@ -183,10 +183,24 @@ function cellValue(value: ExcelJS.CellValue): Prim {
   ) {
     return value;
   }
-  if ("result" in value) return cellValue(value.result as ExcelJS.CellValue);
-  if ("richText" in value) return value.richText.map((part) => part.text).join("").trim();
-  if ("text" in value) return String(value.text).trim();
-  return String(value);
+  if (typeof value !== "object") return null;
+
+  const record = value as Record<string, unknown>;
+  if ("formula" in record || "sharedFormula" in record) {
+    return "result" in record ? cellValue(record.result) : null;
+  }
+  if (Array.isArray(record.richText)) {
+    if (!record.richText.every(
+      (part) => part !== null && typeof part === "object" && typeof part.text === "string",
+    )) {
+      return null;
+    }
+    return record.richText.map((part) => part.text as string).join("").trim();
+  }
+  if (typeof record.hyperlink === "string") {
+    return typeof record.text === "string" ? record.text.trim() : null;
+  }
+  return null;
 }
 
 function toDate(value: unknown): Date | null {
