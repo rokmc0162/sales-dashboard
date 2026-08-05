@@ -7,6 +7,7 @@ import {
   handleCurrentStatus,
   type CurrentStatusLoader,
 } from "../src/features/settlement/lib/current-data-routes";
+import { fetchCurrentSettlementStatus } from "../src/features/settlement/lib/storage/current-status-client";
 
 const AUTH_COOKIE = "X-REFRESH-TOKEN=rvjp-temporary-mock-refresh-token";
 const authenticatedRequest = (path: string) => new Request(`http://local${path}`, {
@@ -23,7 +24,178 @@ function loaderResult(overrides: Partial<Awaited<ReturnType<CurrentStatusLoader>
   } as Awaited<ReturnType<CurrentStatusLoader>>;
 }
 
+const statusPayload = {
+  month: "202606",
+  recordCount: 7,
+  warningCount: 1,
+  isComplete: false,
+};
+
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function noWaitBackoff(delayMs: number, signal: AbortSignal): Promise<void> {
+  assert.ok(delayMs >= 500 && delayMs <= 1_500, "retry delay must stay short and bounded");
+  assert.equal(signal.aborted, false);
+}
+
+async function assertSafeStatusFailure(promise: Promise<unknown>): Promise<void> {
+  await assert.rejects(promise, (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal(error.message, "current settlement status unavailable");
+    return true;
+  });
+}
+
+async function testCurrentStatusClient(): Promise<void> {
+  const retryController = new AbortController();
+  let retryCalls = 0;
+  const recovered = await fetchCurrentSettlementStatus("202606", retryController.signal, {
+    fetchImpl: async (input, init) => {
+      retryCalls += 1;
+      assert.equal(input, "/api/settlement/current-status/202606");
+      assert.equal(init?.signal, retryController.signal);
+      return retryCalls === 1
+        ? new Response("private timeout details", { status: 500 })
+        : jsonResponse({ ...statusPayload, ignoredPrivateField: "not returned" });
+    },
+    backoff: noWaitBackoff,
+  });
+  assert.equal(retryCalls, 2, "one 500 must retry once before succeeding");
+  assert.deepEqual(recovered, statusPayload, "only the validated status fields must be returned");
+
+  let exhaustedCalls = 0;
+  const exhaustedDelays: number[] = [];
+  await assertSafeStatusFailure(fetchCurrentSettlementStatus("202606", new AbortController().signal, {
+    fetchImpl: async () => {
+      exhaustedCalls += 1;
+      return new Response("private database details", { status: 500 });
+    },
+    backoff: async (delayMs, signal) => {
+      assert.equal(signal.aborted, false);
+      exhaustedDelays.push(delayMs);
+    },
+  }));
+  assert.equal(exhaustedCalls, 3, "5xx responses must stop after three total attempts");
+  assert.deepEqual(exhaustedDelays, [500, 1_500], "backoff must be exactly 500ms then 1500ms");
+
+  let unauthorizedCalls = 0;
+  await assertSafeStatusFailure(fetchCurrentSettlementStatus("202606", new AbortController().signal, {
+    fetchImpl: async () => {
+      unauthorizedCalls += 1;
+      return new Response("private auth details", { status: 401 });
+    },
+    backoff: noWaitBackoff,
+  }));
+  assert.equal(unauthorizedCalls, 1, "4xx responses must not retry");
+
+  let networkCalls = 0;
+  const networkRecovered = await fetchCurrentSettlementStatus("202606", new AbortController().signal, {
+    fetchImpl: async () => {
+      networkCalls += 1;
+      if (networkCalls === 1) throw new Error("private network details");
+      return jsonResponse(statusPayload);
+    },
+    backoff: noWaitBackoff,
+  });
+  assert.equal(networkCalls, 2, "transient network failures must retry");
+  assert.deepEqual(networkRecovered, statusPayload);
+
+  let responseReadCalls = 0;
+  const responseReadRecovered = await fetchCurrentSettlementStatus("202606", new AbortController().signal, {
+    fetchImpl: async () => {
+      responseReadCalls += 1;
+      if (responseReadCalls === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => { throw new TypeError("private response stream details"); },
+        } as Response;
+      }
+      return jsonResponse(statusPayload);
+    },
+    backoff: noWaitBackoff,
+  });
+  assert.equal(responseReadCalls, 2, "transient response-body network failures must retry");
+  assert.deepEqual(responseReadRecovered, statusPayload);
+
+  let malformedCalls = 0;
+  await assertSafeStatusFailure(fetchCurrentSettlementStatus("202606", new AbortController().signal, {
+    fetchImpl: async () => {
+      malformedCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => { throw new SyntaxError("private malformed JSON details"); },
+      } as Response;
+    },
+    backoff: noWaitBackoff,
+  }));
+  assert.equal(malformedCalls, 1, "malformed successful responses must not retry");
+
+  const fetchAbort = new Error("private abort details");
+  fetchAbort.name = "AbortError";
+  let abortCalls = 0;
+  let abortBackoffCalls = 0;
+  await assert.rejects(
+    fetchCurrentSettlementStatus("202606", new AbortController().signal, {
+      fetchImpl: async () => {
+        abortCalls += 1;
+        throw fetchAbort;
+      },
+      backoff: async () => {
+        abortBackoffCalls += 1;
+      },
+    }),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
+  assert.equal(abortCalls, 1, "AbortError must stop immediately");
+  assert.equal(abortBackoffCalls, 0, "AbortError must not enter backoff");
+
+  const backoffAbortController = new AbortController();
+  let backoffAbortFetchCalls = 0;
+  await assert.rejects(
+    fetchCurrentSettlementStatus("202606", backoffAbortController.signal, {
+      fetchImpl: async () => {
+        backoffAbortFetchCalls += 1;
+        return new Response("private timeout details", { status: 500 });
+      },
+      backoff: async (_delayMs, signal) => {
+        backoffAbortController.abort();
+        assert.equal(signal.aborted, true);
+        const error = new Error("private backoff abort details");
+        error.name = "AbortError";
+        throw error;
+      },
+    }),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
+  assert.equal(backoffAbortFetchCalls, 1, "abort during backoff must prevent the next fetch");
+
+  let invalidCalls = 0;
+  await assertSafeStatusFailure(fetchCurrentSettlementStatus("202606", new AbortController().signal, {
+    fetchImpl: async () => {
+      invalidCalls += 1;
+      return jsonResponse({
+        month: "202606",
+        recordCount: "7",
+        warningCount: 1,
+        isComplete: false,
+        privateDetails: "must not escape",
+      });
+    },
+    backoff: noWaitBackoff,
+  }));
+  assert.equal(invalidCalls, 1, "invalid successful responses must fail without retrying");
+}
+
 async function main() {
+  await testCurrentStatusClient();
+
   let statusLoaderCalled = false;
   const statusLoader: CurrentStatusLoader = async () => {
     statusLoaderCalled = true;
@@ -193,8 +365,9 @@ async function main() {
   assert.equal(failedExportText.includes("/storage/secret.xlsx"), false);
   assert.equal(failedExportText.includes("amount=999"), false);
 
-  const [settlementClient, previewWindow, previewTable, strictExport] = await Promise.all([
+  const [settlementClient, currentStatusClient, previewWindow, previewTable, strictExport] = await Promise.all([
     readFile(new URL("../src/features/settlement/components/SettlementClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/features/settlement/lib/storage/current-status-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/features/settlement/components/InputPreviewWindow.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/features/settlement/components/InputPreviewTable.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/settlement/export-v2/[month]/route.ts", import.meta.url), "utf8"),
@@ -202,9 +375,18 @@ async function main() {
 
   assert.match(settlementClient, /3\. 현재 정산 데이터/);
   assert.match(settlementClient, /3\. 現在の精算データ/);
-  assert.match(settlementClient, /fetch\(`\/api\/settlement\/current-status\/\$\{month\}`/);
+  assert.match(settlementClient, /fetchCurrentSettlementStatus\(month, controller\.signal\)/);
   assert.match(settlementClient, /new AbortController\(\)/);
-  assert.match(settlementClient, /signal: controller\.signal/);
+  assert.match(currentStatusClient, /fetchImpl\(`\/api\/settlement\/current-status\/\$\{month\}`, \{ signal \}\)/);
+  assert.match(currentStatusClient, /const MAX_ATTEMPTS = 3/);
+  const errorBranchStart = settlementClient.indexOf(") : currentStatusError ? (");
+  const currentDataBranchStart = settlementClient.indexOf(") : currentStatus && currentStatus.recordCount === 0");
+  assert.ok(errorBranchStart >= 0 && currentDataBranchStart > errorBranchStart);
+  const errorBranch = settlementClient.slice(errorBranchStart, currentDataBranchStart);
+  assert.match(errorBranch, /onClick=\{\(\) => setCurrentStatusVersion\(\(version\) => version \+ 1\)\}/);
+  assert.match(errorBranch, /다시 시도/);
+  assert.match(errorBranch, /再試行/);
+  assert.doesNotMatch(errorBranch, /export-current|openPreviewWindow/, "data actions must stay hidden in the error branch");
   assert.doesNotMatch(settlementClient, /preview-v2/);
   assert.equal(
     [...settlementClient.matchAll(

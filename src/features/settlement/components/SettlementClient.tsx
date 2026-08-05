@@ -5,6 +5,10 @@ import { AlertCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Chev
 import { useApp } from '@/context/AppContext';
 import SettlementCompareClient from '@/features/settlement/components/SettlementCompareClient';
 import {
+  fetchCurrentSettlementStatus,
+  type CurrentDataStatus,
+} from '@/features/settlement/lib/storage/current-status-client';
+import {
   enqueueSettlementJob,
   exceedsSettlementJobFileLimit,
   fetchLatestSettlementJob,
@@ -38,13 +42,6 @@ type ResetResult = Record<string, unknown> & { ok?: boolean; error?: string };
 
 // One platform that already has settlement rows in a month — names only, no amounts/counts.
 type MonthPlatform = { code: string | null; name: string | null };
-
-type CurrentDataStatus = {
-  month: string;
-  recordCount: number;
-  warningCount: number;
-  isComplete: boolean;
-};
 
 function toIsoMonth(yyyymm: string) {
   return `${yyyymm.slice(0, 4)}-${yyyymm.slice(4, 6)}-01`;
@@ -224,18 +221,7 @@ export default function SettlementClient({
     setCurrentStatusLoading(true);
     setCurrentStatusError(false);
 
-    fetch(`/api/settlement/current-status/${month}`, { signal: controller.signal })
-      .then(async (res) => {
-        const json = (await res.json().catch(() => ({}))) as Partial<CurrentDataStatus>;
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        if (json.month !== month
-          || typeof json.recordCount !== 'number'
-          || typeof json.warningCount !== 'number'
-          || typeof json.isComplete !== 'boolean') {
-          throw new Error('invalid current status response');
-        }
-        return json as CurrentDataStatus;
-      })
+    fetchCurrentSettlementStatus(month, controller.signal)
       .then((status) => {
         if (!controller.signal.aborted) setCurrentStatus(status);
       })
@@ -798,7 +784,14 @@ export default function SettlementClient({
           </p>
         ) : currentStatusError ? (
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-            {t('현재 데이터 현황을 불러오지 못했습니다.', '現在のデータ状況を読み込めませんでした。')}
+            <p>{t('현재 데이터 현황을 불러오지 못했습니다.', '現在のデータ状況を読み込めませんでした。')}</p>
+            <button
+              type="button"
+              onClick={() => setCurrentStatusVersion((version) => version + 1)}
+              className="mt-3 inline-flex items-center rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold transition hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-950"
+            >
+              {t('다시 시도', '再試行')}
+            </button>
           </div>
         ) : currentStatus && currentStatus.recordCount === 0 ? (
           <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
