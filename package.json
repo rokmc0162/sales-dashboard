@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test:input-v2-cell-values": "node --import tsx scripts/test-input-v2-cell-values.ts",
+    "test:settlement-drive-config": "node --conditions=react-server --import tsx scripts/test-settlement-drive-config.ts",
+    "test:settlement-drive-client": "node --conditions=react-server --import tsx scripts/test-settlement-drive-client.ts",
     "settlement:compare-golden": "node --import tsx scripts/compare-input-jp-golden.ts",
     "settlement:investigations": "node --env-file-if-exists=.env.local --import tsx scripts/settlement-investigation-cli.ts",
     "settlement:worker": "node --env-file-if-exists=.env.local --import tsx scripts/settlement-worker.ts",
@@ -21,7 +23,7 @@
     "test:settlement-current-data": "node --import tsx scripts/test-settlement-current-data.ts",
     "bench:shueisha": "node --import tsx scripts/bench-shueisha-ocr.ts",
     "content-master:import": "node --import tsx scripts/content-master-import.ts",
-    "test:settlement": "node --import tsx scripts/test-input-v2-cell-values.ts && node --import tsx scripts/test-direct-upload.ts && node --import tsx scripts/test-settlement-heartbeat-stream.ts && node --import tsx scripts/test-piccoma-companion-reconcile.ts && node --import tsx scripts/test-shueisha-hard-failure.ts && node --import tsx scripts/test-shueisha-runtime-bundling.ts && node --import tsx scripts/test-shueisha-ocr-concurrency.ts && node --import tsx scripts/test-shueisha-amount-fastpath.ts && node --import tsx scripts/test-comparison-compare.ts && node --import tsx scripts/test-comparison-artifact-path.ts && node --import tsx scripts/test-input-v2-carry-baseline-fallback.ts && node --import tsx scripts/test-input-v2-source-gates.ts && node --import tsx scripts/test-input-v2-carry-forward.ts && node --import tsx scripts/test-parser-repair-phase-b.ts && node scripts/test-verify-canvas-vercel-bundle.mjs",
+    "test:settlement": "node --import tsx scripts/test-input-v2-cell-values.ts && npm run test:settlement-drive-config && npm run test:settlement-drive-client && node --import tsx scripts/test-direct-upload.ts && node --import tsx scripts/test-settlement-heartbeat-stream.ts && node --import tsx scripts/test-piccoma-companion-reconcile.ts && node --import tsx scripts/test-shueisha-hard-failure.ts && node --import tsx scripts/test-shueisha-runtime-bundling.ts && node --import tsx scripts/test-shueisha-ocr-concurrency.ts && node --import tsx scripts/test-shueisha-amount-fastpath.ts && node --import tsx scripts/test-comparison-compare.ts && node --import tsx scripts/test-comparison-artifact-path.ts && node --import tsx scripts/test-input-v2-carry-baseline-fallback.ts && node --import tsx scripts/test-input-v2-source-gates.ts && node --import tsx scripts/test-input-v2-carry-forward.ts && node --import tsx scripts/test-parser-repair-phase-b.ts && node scripts/test-verify-canvas-vercel-bundle.mjs",
     "deploy": "node scripts/ensure-canvas-linux-binding.mjs && vercel build --prod && node scripts/verify-canvas-vercel-bundle.mjs && vercel deploy --prebuilt --prod"
   },
   "dependencies": {
@@ -58,6 +60,7 @@
     "react-dom": "^19.2.0",
     "react-is": "^19.2.4",
     "recharts": "^3.7.0",
+    "server-only": "^0.0.1",
     "swr": "^2.4.1",
     "tailwind-merge": "^3.5.0",
     "tesseract.js": "^7.0.0",
