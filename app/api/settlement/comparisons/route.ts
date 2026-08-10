@@ -55,9 +55,17 @@ function monthToBatchIso(month: string): string | null {
 }
 
 export async function POST(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
+  const contentLengthHeader = request.headers.get("content-length");
+  if (!contentLengthHeader || !/^\d+$/.test(contentLengthHeader)) {
+    return NextResponse.json({ error: "content-length required" }, { status: 411 });
+  }
+  const contentLength = Number(contentLengthHeader);
+  if (contentLength > MAX_ANSWER_BYTES + 512_000) {
+    return NextResponse.json({ error: "request body too large" }, { status: 413 });
+  }
   const form = await request.formData();
   const month = typeof form.get("month") === "string" ? (form.get("month") as string) : "";
   const batchIso = monthToBatchIso(month);
@@ -234,7 +242,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const url = new URL(request.url);

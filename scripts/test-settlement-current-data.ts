@@ -9,10 +9,12 @@ import {
 } from "../src/features/settlement/lib/current-data-routes";
 import { fetchCurrentSettlementStatus } from "../src/features/settlement/lib/storage/current-status-client";
 
-const AUTH_COOKIE = "X-REFRESH-TOKEN=rvjp-temporary-mock-refresh-token";
 const authenticatedRequest = (path: string) => new Request(`http://local${path}`, {
-  headers: { cookie: AUTH_COOKIE },
+  headers: { origin: "http://local" },
 });
+const allowAuth = async () => null;
+const denyAuth = async () =>
+  Response.json({ error: "Unauthorized" }, { status: 401 });
 
 function loaderResult(overrides: Partial<Awaited<ReturnType<CurrentStatusLoader>>> = {}) {
   return {
@@ -205,7 +207,7 @@ async function main() {
   const unauthorizedStatus = await handleCurrentStatus(
     new Request("http://local/api/settlement/current-status/202606"),
     "202606",
-    statusLoader,
+    { auth: denyAuth, loadRecords: statusLoader },
   );
   assert.equal(unauthorizedStatus.status, 401);
   assert.equal(statusLoaderCalled, false, "authentication must run before loading records");
@@ -213,7 +215,7 @@ async function main() {
   const invalidStatus = await handleCurrentStatus(
     authenticatedRequest("/api/settlement/current-status/2026-06"),
     "2026-06",
-    statusLoader,
+    { auth: allowAuth, loadRecords: statusLoader },
   );
   assert.equal(invalidStatus.status, 400);
   assert.equal(statusLoaderCalled, false, "month validation must run before loading records");
@@ -222,9 +224,12 @@ async function main() {
   const readyStatus = await handleCurrentStatus(
     authenticatedRequest("/api/settlement/current-status/202606"),
     "202606",
-    async (_month, options) => {
-      statusOptions = options;
-      return loaderResult();
+    {
+      auth: allowAuth,
+      loadRecords: async (_month, options) => {
+        statusOptions = options;
+        return loaderResult();
+      },
     },
   );
   assert.equal(readyStatus.status, 200);
@@ -240,7 +245,10 @@ async function main() {
   const emptyStatus = await handleCurrentStatus(
     authenticatedRequest("/api/settlement/current-status/202606"),
     "202606",
-    async () => loaderResult({ records: [], sourceWarnings: [] }),
+    {
+      auth: allowAuth,
+      loadRecords: async () => loaderResult({ records: [], sourceWarnings: [] }),
+    },
   );
   assert.deepEqual(await emptyStatus.json(), {
     month: "202606",
@@ -252,15 +260,18 @@ async function main() {
   const failedStatus = await handleCurrentStatus(
     authenticatedRequest("/api/settlement/current-status/202606"),
     "202606",
-    async () => loaderResult({
-      records: [],
-      loadError: {
-        status: 500,
-        error: "Failed to fetch settlement records",
-        details: "title=private /storage/secret.xlsx amount=999",
-      },
-      sourceWarnings: [],
-    }),
+    {
+      auth: allowAuth,
+      loadRecords: async () => loaderResult({
+        records: [],
+        loadError: {
+          status: 500,
+          error: "Failed to fetch settlement records",
+          details: "title=private /storage/secret.xlsx amount=999",
+        },
+        sourceWarnings: [],
+      }),
+    },
   );
   const failedStatusText = await failedStatus.text();
   assert.equal(failedStatus.status, 500);
@@ -269,6 +280,7 @@ async function main() {
 
   let exportLoaderCalled = false;
   const exportDeps: CurrentExportDependencies = {
+    auth: allowAuth,
     loadRecords: async () => {
       exportLoaderCalled = true;
       return loaderResult();
@@ -285,7 +297,7 @@ async function main() {
   const unauthorizedExport = await handleCurrentExport(
     new Request("http://local/api/settlement/export-current/202606.xlsx"),
     "202606.xlsx",
-    exportDeps,
+    { ...exportDeps, auth: denyAuth },
   );
   assert.equal(unauthorizedExport.status, 401);
   assert.equal(exportLoaderCalled, false);
@@ -304,13 +316,14 @@ async function main() {
     authenticatedRequest("/api/settlement/export-current/202606.xlsx"),
     "202606.xlsx",
     {
+      auth: allowAuth,
       loadRecords: async (_month, options) => {
         exportOptions = options;
         return loaderResult();
       },
       fillTemplate: async ({ records }) => {
         filledRecords = records;
-        return exportDeps.fillTemplate({ month: "202606", records });
+        return exportDeps.fillTemplate!({ month: "202606", records });
       },
     },
   );

@@ -16,6 +16,7 @@
 import { NextResponse } from "next/server";
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import { supabaseServer as supabase } from "@/lib/supabase-server";
+import { readBoundedJson } from "@/lib/auth-route.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -24,14 +25,14 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ month: string }> },
 ) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request, "admin");
   if (unauthorized) return unauthorized;
 
   const { month } = await params;
   if (!/^\d{6}$/.test(month)) {
     return NextResponse.json({ error: "month must be YYYYMM" }, { status: 400 });
   }
-  const body = (await request.json().catch(() => ({}))) as { confirm?: boolean };
+  const body = (await readBoundedJson(request, 1_024).catch(() => ({}))) as { confirm?: boolean };
   if (body.confirm !== true) {
     return NextResponse.json({ error: "confirm=true required" }, { status: 400 });
   }

@@ -57,7 +57,7 @@ async function main() {
 
   assert.match(route, /export async function GET\(request: Request\)/);
   assert.match(route, /searchParams\.get\("month"\)/);
-  assert.match(route, /requireSettlementApiAuth\(request\)/);
+  assert.match(route, /await requireSettlementApiAuth\(request\)/);
   assert.match(route, /"cache-control": "no-store"/);
 
   console.log("test-settlement-worker-ui: all assertions passed");

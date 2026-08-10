@@ -4,13 +4,23 @@ import { requireSettlementApiAuth } from "./api-auth";
 import { loadInputV2Records } from "./export/load-input-v2-records";
 
 export type CurrentStatusLoader = typeof loadInputV2Records;
+export type CurrentDataAuthGuard = (
+  request: Request,
+) => Promise<Response | null>;
+
+export type CurrentStatusDependencies = {
+  auth?: CurrentDataAuthGuard;
+  loadRecords?: CurrentStatusLoader;
+};
 
 export async function handleCurrentStatus(
   request: Request,
   month: string,
-  loadRecords: CurrentStatusLoader = loadInputV2Records,
+  dependencies: CurrentStatusDependencies = {},
 ) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await (
+    dependencies.auth ?? requireSettlementApiAuth
+  )(request);
   if (unauthorized) return unauthorized;
 
   if (!/^\d{6}$/.test(month)) {
@@ -20,7 +30,9 @@ export async function handleCurrentStatus(
     );
   }
 
-  const { records, loadError, sourceWarnings } = await loadRecords(month, {
+  const { records, loadError, sourceWarnings } = await (
+    dependencies.loadRecords ?? loadInputV2Records
+  )(month, {
     allowIncompleteSources: true,
   });
   if (loadError) {
@@ -44,8 +56,9 @@ export async function handleCurrentStatus(
 type CurrentWorkbookResult = { buffer: Buffer };
 
 export type CurrentExportDependencies = {
-  loadRecords: typeof loadInputV2Records;
-  fillTemplate: (options: {
+  auth?: CurrentDataAuthGuard;
+  loadRecords?: typeof loadInputV2Records;
+  fillTemplate?: (options: {
     month: string;
     records: Record<string, unknown>[];
   }) => Promise<CurrentWorkbookResult>;
@@ -56,7 +69,9 @@ export async function handleCurrentExport(
   rawMonth: string,
   dependencies?: CurrentExportDependencies,
 ) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await (
+    dependencies?.auth ?? requireSettlementApiAuth
+  )(request);
   if (unauthorized) return unauthorized;
 
   const month = rawMonth.replace(/\.xlsx$/i, "");

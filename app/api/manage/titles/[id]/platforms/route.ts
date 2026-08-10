@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
+import { readAdminJson } from '@/lib/admin-route.server';
 
 /**
  * GET /api/manage/titles/[id]/platforms
@@ -14,6 +16,9 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const unauthorized = await requireGlobalAdminAuth(_request);
+  if (unauthorized) return unauthorized;
+
   const { id } = await params;
 
   const { data, error } = await supabaseServer
@@ -36,8 +41,12 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
   const { id } = await params;
-  const body = await request.json();
+  const parsedBody = await readAdminJson(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
   const { platform_id, launch_date } = body;
 
   if (!platform_id) return NextResponse.json({ error: 'platform_id is required' }, { status: 400 });
@@ -71,8 +80,12 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
   const { id } = await params;
-  const body = await request.json();
+  const parsedBody = await readAdminJson(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
   const { platform_id } = body;
 
   if (!platform_id) return NextResponse.json({ error: 'platform_id is required' }, { status: 400 });

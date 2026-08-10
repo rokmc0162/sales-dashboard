@@ -229,9 +229,19 @@ async function main() {
   const unauthorizedPost = await postJobRoute(new Request("http://local/api/settlement/jobs", {
     method: "POST",
     body: JSON.stringify(validBody),
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      origin: "http://local",
+      "sec-fetch-site": "same-origin",
+    },
   }));
   assert.equal(unauthorizedPost.status, 401);
+  const missingOriginPost = await postJobRoute(new Request("http://local/api/settlement/jobs", {
+    method: "POST",
+    body: JSON.stringify(validBody),
+    headers: { "content-type": "application/json" },
+  }));
+  assert.equal(missingOriginPost.status, 403);
   const unauthorizedLatestGet = await getLatestJobRoute(
     new Request("http://local/api/settlement/jobs?month=2026-06-01"),
   );

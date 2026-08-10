@@ -11,7 +11,7 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const month = new URL(request.url).searchParams.get("month") ?? "";
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const body = await readBoundedJsonBody(request);

@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
+import { readAdminJson } from '@/lib/admin-route.server';
 
 /**
  * PUT /api/manage/sales
@@ -11,7 +13,11 @@ import { supabaseServer } from '@/lib/supabase-server';
  * @dynamic force-dynamic (캐시 없음)
  */
 export async function PUT(request: Request) {
-  const body = await request.json();
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+  const parsedBody = await readAdminJson(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
   const { id, ...updates } = body;
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
@@ -49,8 +55,16 @@ export async function PUT(request: Request) {
  * @returns { deleted: number }
  */
 export async function DELETE(request: Request) {
-  const body = await request.json();
-  const ids: number[] = body.ids || (body.id ? [body.id] : []);
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+  const parsedBody = await readAdminJson(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
+  const ids: number[] = Array.isArray(body.ids)
+    ? body.ids.filter((id): id is number => Number.isSafeInteger(id))
+    : Number.isSafeInteger(body.id)
+      ? [body.id as number]
+      : [];
 
   if (ids.length === 0) return NextResponse.json({ error: 'id or ids required' }, { status: 400 });
 

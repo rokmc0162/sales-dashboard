@@ -120,6 +120,7 @@ export interface UploadLog {
   row_count: number;
   status: string;
   error_message: string | null;
+  storage_path: string | null;
   created_at: string;
 }
 

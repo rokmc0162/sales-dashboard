@@ -184,37 +184,57 @@ export default function DataUploadPage() {
     detectedLabel?: string;
   }) => {
     const file = currentFileRef.current;
+    let storagePath: string | null = null;
     try {
-      // 1. upload_logs에 직접 기록 (항상 성공해야 함)
-      await supabase.from('upload_logs').insert({
-        upload_type: meta.uploadType || 'sokuhochi',
-        source_file: file?.name || 'unknown',
-        row_count: meta.rowCount ?? 0,
-        status: meta.status === 'success' ? 'completed' : meta.status === 'preview' ? 'processing' : 'failed',
-        error_message: meta.errorMessage
-          ? `[${meta.detectedLabel || '?'}] ${meta.errorMessage}`
-          : meta.detectedLabel ? `[${meta.detectedLabel}] ${meta.status}` : null,
-        platforms: meta.platform ? [meta.platform] : null,
-      });
-
-      // 2. Storage에 원본 파일 직접 업로드 (Vercel 4.5MB 제한 우회)
+      // 서버가 발급한 1회용 token으로 Storage에 직접 전송합니다.
       if (file) {
         try {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          // Storage 경로는 ASCII만 허용 (일본어 파일명 업로드 실패 방지)
-          // 원본 파일명은 upload_logs.source_file에 보존됨
-          const ext = file.name.match(/\.[^.]+$/)?.[0] ?? '';
-          const asciiBase = file.name.replace(ext, '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 50);
-          const path = `uploads/${timestamp}_${asciiBase || 'upload'}${ext}`;
-          const buf = await file.arrayBuffer();
-          await supabase.storage.from('upload-debug').upload(path, buf, {
-            contentType: file.type || 'application/octet-stream',
-            upsert: false,
+          const prepareResponse = await fetch('/api/upload-debug', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: file.name, size_bytes: file.size }),
           });
-        } catch { /* Storage 실패 무시 */ }
+          if (prepareResponse.ok) {
+            const session = (await prepareResponse.json()) as { path?: string; token?: string };
+            if (session.path && session.token) {
+              const { error: uploadError } = await supabase.storage
+                .from('upload-debug')
+                .uploadToSignedUrl(session.path, session.token, file, {
+                  contentType: file.type || 'application/octet-stream',
+                });
+              if (!uploadError) storagePath = session.path;
+            }
+          }
+        } catch {
+          // 원본 보관 실패는 매출 업로드 결과를 덮어쓰지 않습니다.
+        }
       }
+
+      // 관리자 인증 API를 통해 upload_logs 기록
+      const logResponse = await fetch('/api/sales/upload-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          upload_type: meta.uploadType || 'sokuhochi',
+          source_file: file?.name || 'unknown',
+          row_count: meta.rowCount ?? 0,
+          status: meta.status === 'success' ? 'completed' : meta.status === 'preview' ? 'processing' : 'failed',
+          error_message: meta.errorMessage
+            ? `[${meta.detectedLabel || '?'}] ${meta.errorMessage}`
+            : meta.detectedLabel ? `[${meta.detectedLabel}] ${meta.status}` : null,
+          platforms: meta.platform ? [meta.platform] : null,
+          storage_path: storagePath,
+        }),
+      });
+      if (!logResponse.ok) throw new Error('upload log failed');
     } catch {
-      // 로그 실패는 무시
+      if (storagePath) {
+        await fetch('/api/upload-debug', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: storagePath }),
+        }).catch(() => undefined);
+      }
     }
   }, []);
 
@@ -250,14 +270,12 @@ export default function DataUploadPage() {
   }, []);
 
   useEffect(() => {
-    supabase
-      .from('upload_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(20)
-      .then(({ data }) => {
-        if (data) setUploadLogs(data as UploadLog[]);
-      });
+    fetch('/api/sales/upload-logs')
+      .then((response) => response.ok ? response.json() : [])
+      .then((data: unknown) => {
+        if (Array.isArray(data)) setUploadLogs(data as UploadLog[]);
+      })
+      .catch(() => {});
   }, [status]);
 
   // Detect new titles from parsed rows
@@ -696,12 +714,11 @@ export default function DataUploadPage() {
           });
           if (!res.ok) throw new Error('Cancel failed');
           setToast({ message: t('삭제 완료', '削除しました'), type: 'success' });
-          const { data } = await supabase
-            .from('upload_logs')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(20);
-          if (data) setUploadLogs(data as UploadLog[]);
+          const logsResponse = await fetch('/api/sales/upload-logs');
+          if (logsResponse.ok) {
+            const data = (await logsResponse.json()) as unknown;
+            if (Array.isArray(data)) setUploadLogs(data as UploadLog[]);
+          }
         } catch {
           setToast({ message: t('삭제 실패', '削除に失敗しました'), type: 'error' });
         }
@@ -1310,12 +1327,14 @@ export default function DataUploadPage() {
             {uploadLogs.length > 0 && (
               <button
                 onClick={async () => {
-                  const pw = prompt(t('삭제 비밀번호를 입력하세요', '削除パスワードを入力'));
-                  if (pw !== 'CLINK') { if (pw !== null) alert(t('비밀번호가 일치하지 않습니다', 'パスワードが一致しません')); return; }
                   if (!confirm(t('업로드 이력을 전체 삭제하시겠습니까?', 'アップロード履歴を全削除しますか？'))) return;
-                  await supabase.from('upload_logs').delete().gte('created_at', '2000-01-01');
-                  setUploadLogs([]);
-                  setToast({ message: t('이력 삭제 완료', '履歴を削除しました'), type: 'success' });
+                  const response = await fetch('/api/sales/upload-logs?all=true', { method: 'DELETE' });
+                  if (response.ok) {
+                    setUploadLogs([]);
+                    setToast({ message: t('이력 삭제 완료', '履歴を削除しました'), type: 'success' });
+                  } else {
+                    setToast({ message: t('삭제 실패', '削除失敗'), type: 'error' });
+                  }
                 }}
                 className="ml-auto text-[12px] px-3 py-1 rounded-lg cursor-pointer transition-all"
                 style={{ background: 'rgba(220,38,38,0.08)', color: '#dc2626', border: '1px solid rgba(220,38,38,0.15)' }}
@@ -1438,12 +1457,7 @@ export default function DataUploadPage() {
                             )}
                             <button
                               onClick={() => {
-                                const pw = prompt(t('삭제 비밀번호를 입력하세요', '削除パスワードを入力'));
-                                if (pw !== 'CLINK') {
-                                  if (pw !== null)
-                                    alert(t('비밀번호가 일치하지 않습니다', 'パスワードが一致しません'));
-                                  return;
-                                }
+                                if (!confirm(t('이 업로드 이력을 삭제하시겠습니까?', 'このアップロード履歴を削除しますか？'))) return;
                                 fetch(`/api/sales/upload-logs?id=${log.id}`, { method: 'DELETE' })
                                   .then((r) => {
                                     if (r.ok) setUploadLogs((prev) => prev.filter((l) => l.id !== log.id));
@@ -1495,19 +1509,17 @@ export default function DataUploadPage() {
                               <button
                                 onClick={async () => {
                                   try {
-                                    const safeName = (log.source_file ?? '').replace(/[^a-zA-Z0-9가-힣ぁ-んァ-ヶ一-龠._-]/g, '_');
-                                    if (!safeName) { alert(t('파일명 정보가 없습니다', 'ファイル名情報がありません')); return; }
-                                    // Storage에서 파일명으로 검색
-                                    const { data: files } = await supabase.storage.from('upload-debug').list('uploads', {
-                                      search: safeName,
-                                      limit: 5,
-                                      sortBy: { column: 'created_at', order: 'desc' },
-                                    });
-                                    if (files && files.length > 0) {
-                                      const { data: urlData } = await supabase.storage.from('upload-debug').createSignedUrl(`uploads/${files[0].name}`, 3600);
-                                      if (urlData?.signedUrl) { window.open(urlData.signedUrl, '_blank'); return; }
+                                    if (!log.storage_path) {
+                                      alert(t('보관된 원본 파일이 없습니다', '保存された元ファイルがありません'));
+                                      return;
                                     }
-                                    alert(t('파일을 찾을 수 없습니다 (Storage에 저장된 파일이 없을 수 있습니다)', 'ファイルが見つかりません'));
+                                    const response = await fetch(
+                                      `/api/upload-debug?path=${encodeURIComponent(log.storage_path)}`,
+                                    );
+                                    if (!response.ok) throw new Error('download unavailable');
+                                    const data = (await response.json()) as { downloadUrl?: string };
+                                    if (!data.downloadUrl) throw new Error('download unavailable');
+                                    window.open(data.downloadUrl, '_blank', 'noopener,noreferrer');
                                   } catch {
                                     alert(t('다운로드에 실패했습니다', 'ダウンロードに失敗しました'));
                                   }

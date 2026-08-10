@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
+import { readAdminJson } from '@/lib/admin-route.server';
 
 /**
  * PUT /api/manage/titles/batch
@@ -11,7 +13,11 @@ import { supabaseServer } from '@/lib/supabase-server';
  * @dynamic force-dynamic (캐시 없음)
  */
 export async function PUT(request: Request) {
-  const body = await request.json();
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+  const parsedBody = await readAdminJson(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
   const { ids, updates } = body;
 
   if (!ids || !Array.isArray(ids) || ids.length === 0) {

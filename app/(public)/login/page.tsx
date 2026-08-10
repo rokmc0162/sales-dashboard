@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Lock, Eye, EyeOff, TrendingUp } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
 
 // ---------------------------------------------------------------------------
@@ -43,8 +43,10 @@ export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -52,18 +54,40 @@ export default function LoginPage() {
     setLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const temporaryCode = String(formData.get('password') ?? '').trim();
-    if (!/^\d+$/.test(temporaryCode)) {
-      setError('숫자만 입력하면 임시로 접속할 수 있습니다.');
-      setLoading(false);
-      return;
-    }
+    const email = String(formData.get('email') ?? '').trim();
+    const password = String(formData.get('password') ?? '');
 
     try {
-      await login('temporary@riverse.local', temporaryCode);
+      await login(email, password);
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : '로그인 실패');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    const formData = new FormData(e.currentTarget);
+    const email = String(formData.get('email') ?? '').trim();
+    if (!email) {
+      setError('이메일을 입력해주세요.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!response.ok) throw new Error('비밀번호 재설정 요청에 실패했습니다.');
+      setNotice('등록 여부와 관계없이 재설정 가능한 계정에는 안내 메일을 보냈습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '비밀번호 재설정 요청에 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -165,51 +189,83 @@ export default function LoginPage() {
           {/* 타이틀 */}
           <div className="mb-1.5 flex items-center gap-2">
             <TrendingUp size={20} className="text-ring" />
-            <h2 className="text-2xl font-bold text-foreground">로그인</h2>
+            <h2 className="text-2xl font-bold text-foreground">{forgotMode ? '비밀번호 재설정' : '로그인'}</h2>
           </div>
-          <p className="mb-8 text-[13px] text-muted-foreground">지금은 임시 접속 모드입니다. 아무 숫자나 입력하면 접속됩니다.</p>
+          <p className="mb-8 text-[13px] text-muted-foreground">
+            {forgotMode ? '등록된 이메일로 재설정 안내를 요청하세요.' : '등록된 이메일과 비밀번호로 로그인하세요.'}
+          </p>
 
-          <form onSubmit={handleSubmit} noValidate>
-            {/* 임시 숫자 접속 코드 */}
-            <div className="mb-7">
+          <form onSubmit={forgotMode ? handleForgotPassword : handleSubmit} noValidate>
+            <div className="mb-4">
               <label
-                htmlFor="password"
+                htmlFor="email"
                 className="mb-1.5 block text-[12px] font-medium text-muted-foreground"
               >
-                임시 접속 숫자
+                이메일
               </label>
               <div className="relative">
-                <Lock
+                <Mail
                   size={15}
                   className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60"
                 />
                 <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
+                  id="email"
+                  name="email"
+                  type="email"
                   required
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="off"
-                  placeholder="예: 1234"
-                  className="w-full rounded-[10px] border border-input bg-input/40 py-3 pl-10 pr-11 text-[14px] text-foreground transition-[border-color,box-shadow] duration-200 outline-none focus:border-ring focus:shadow-[0_0_0_3px_rgba(56,169,248,0.15)]"
+                  maxLength={254}
+                  autoComplete="email"
+                  placeholder="name@example.com"
+                  className="w-full rounded-[10px] border border-input bg-input/40 py-3 pl-10 pr-4 text-[14px] text-foreground transition-[border-color,box-shadow] duration-200 outline-none focus:border-ring focus:shadow-[0_0_0_3px_rgba(56,169,248,0.15)]"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 flex cursor-pointer items-center p-1 text-muted-foreground/60 transition-colors hover:text-muted-foreground"
-                  tabIndex={-1}
-                  aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
-                >
-                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
               </div>
             </div>
+
+            {!forgotMode && (
+              <div className="mb-7">
+                <label
+                  htmlFor="password"
+                  className="mb-1.5 block text-[12px] font-medium text-muted-foreground"
+                >
+                  비밀번호
+                </label>
+                <div className="relative">
+                  <Lock
+                    size={15}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60"
+                  />
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    maxLength={1024}
+                    autoComplete="current-password"
+                    placeholder="비밀번호를 입력하세요"
+                    className="w-full rounded-[10px] border border-input bg-input/40 py-3 pl-10 pr-11 text-[14px] text-foreground transition-[border-color,box-shadow] duration-200 outline-none focus:border-ring focus:shadow-[0_0_0_3px_rgba(56,169,248,0.15)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 flex cursor-pointer items-center p-1 text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+                    tabIndex={-1}
+                    aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* 에러/안내 메시지 */}
             {error && (
               <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-3.5 py-2.5 text-center text-[13px] text-destructive">
                 {error}
+              </div>
+            )}
+            {notice && (
+              <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3.5 py-2.5 text-center text-[13px] text-emerald-600">
+                {notice}
               </div>
             )}
 
@@ -219,9 +275,23 @@ export default function LoginPage() {
               disabled={loading}
               className="btn-gradient w-full cursor-pointer rounded-[10px] py-3.5 text-[14px] font-semibold text-primary-foreground transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? '로그인 중...' : '로그인'}
+              {loading
+                ? (forgotMode ? '요청 중...' : '로그인 중...')
+                : (forgotMode ? '재설정 메일 요청' : '로그인')}
             </button>
           </form>
+
+          <button
+            type="button"
+            onClick={() => {
+              setForgotMode((value) => !value);
+              setError(null);
+              setNotice(null);
+            }}
+            className="mt-4 w-full cursor-pointer text-center text-[13px] text-muted-foreground hover:text-foreground"
+          >
+            {forgotMode ? '로그인으로 돌아가기' : '비밀번호를 잊으셨나요?'}
+          </button>
 
         </motion.div>
       </div>

@@ -27,7 +27,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ diffId: string }> },
 ) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const { diffId } = await params;
@@ -52,7 +52,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ diffId: string }> },
 ) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const { diffId } = await params;

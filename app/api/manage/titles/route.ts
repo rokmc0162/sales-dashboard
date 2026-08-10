@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
+import { readAdminJson } from '@/lib/admin-route.server';
 
 function escapeIlike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => '\\' + ch);
@@ -24,6 +26,9 @@ function escapeIlike(value: string): string {
  * @dynamic force-dynamic (캐시 없음)
  */
 export async function GET(request: Request) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { searchParams } = new URL(request.url);
   const search = searchParams.get('search') || '';
   const genre = searchParams.get('genre') || '';
@@ -71,7 +76,11 @@ export async function GET(request: Request) {
  * @returns 생성된 작품 레코드 (201)
  */
 export async function POST(request: Request) {
-  const body = await request.json();
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+  const parsedBody = await readAdminJson(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
 
   const { data, error } = await supabaseServer
     .from('titles')
@@ -98,7 +107,11 @@ export async function POST(request: Request) {
  * @returns 수정된 작품 레코드
  */
 export async function PUT(request: Request) {
-  const body = await request.json();
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+  const parsedBody = await readAdminJson(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
   const { id, ...updates } = body;
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
@@ -136,8 +149,16 @@ export async function PUT(request: Request) {
  * @returns { deleted: number }
  */
 export async function DELETE(request: Request) {
-  const body = await request.json();
-  const ids: string[] = body.ids || (body.id ? [body.id] : []);
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+  const parsedBody = await readAdminJson(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
+  const ids: string[] = Array.isArray(body.ids)
+    ? body.ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : typeof body.id === 'string' && body.id.length > 0
+      ? [body.id]
+      : [];
 
   if (ids.length === 0) return NextResponse.json({ error: 'id or ids required' }, { status: 400 });
 

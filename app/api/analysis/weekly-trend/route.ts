@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
 
 export const revalidate = 300;
 
@@ -12,6 +13,9 @@ export const revalidate = 300;
  * @cache revalidate 300초 (5분)
  */
 export async function GET(request: Request) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { searchParams } = new URL(request.url);
   const startDate = searchParams.get('startDate') || undefined;
   const endDate = searchParams.get('endDate') || undefined;

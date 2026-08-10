@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
+import { readBoundedJson } from '@/lib/auth-route.server';
 
 /**
  * POST /api/manage/sales/batch-delete
@@ -11,8 +13,18 @@ import { supabaseServer } from '@/lib/supabase-server';
  * @dynamic force-dynamic (캐시 없음)
  */
 export async function POST(request: Request) {
-  const body = await request.json();
-  const { startDate, endDate, dataSource, channel } = body;
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+  let body: unknown;
+  try {
+    body = await readBoundedJson(request, 32_768);
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
+  const { startDate, endDate, dataSource, channel } = body as Record<string, unknown>;
 
   if (!startDate && !endDate && !dataSource && !channel) {
     return NextResponse.json({ error: 'At least one filter condition is required' }, { status: 400 });

@@ -78,7 +78,8 @@ const PAGE_SIZE = 50;
 
 export default function ContentMasterTab() {
   const { t } = useApp();
-  const { accessToken } = useAuth();
+  const { user, isReady } = useAuth();
+  const isAuthenticated = user !== null;
 
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ContentRow[]>([]);
@@ -99,15 +100,18 @@ export default function ContentMasterTab() {
 
   // Load lightweight stats once (also drives filter dropdowns)
   useEffect(() => {
-    if (!accessToken) return;
-    fetch('/api/content-master/stats', { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then((res) => res.json())
+    if (!isReady || !isAuthenticated) return;
+    fetch('/api/content-master/stats')
+      .then((res) => {
+        if (!res.ok) throw new Error('Content master stats unavailable');
+        return res.json();
+      })
       .then((data: Stats) => setStats(data))
       .catch((err) => console.error('Failed to load content master stats:', err));
-  }, [accessToken]);
+  }, [isReady, isAuthenticated]);
 
   const loadPage = useCallback(async () => {
-    if (!accessToken) {
+    if (!isReady || !isAuthenticated) {
       setLoading(false);
       return;
     }
@@ -119,7 +123,8 @@ export default function ContentMasterTab() {
     if (labelFilter) params.set('label', labelFilter);
     if (formatFilter) params.set('format', formatFilter);
     try {
-      const res = await fetch(`/api/content-master?${params.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const res = await fetch(`/api/content-master?${params.toString()}`);
+      if (!res.ok) throw new Error('Content master unavailable');
       const data = await res.json();
       setRows(data.rows ?? []);
       setTotalCount(data.count ?? 0);
@@ -129,10 +134,9 @@ export default function ContentMasterTab() {
       setTotalCount(0);
     }
     setLoading(false);
-  }, [page, q, statusFilter, genreFilter, labelFilter, formatFilter, accessToken]);
+  }, [page, q, statusFilter, genreFilter, labelFilter, formatFilter, isReady, isAuthenticated]);
 
   // Fetching rows here is the intended external synchronization for this tab.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadPage(); }, [loadPage]);
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);

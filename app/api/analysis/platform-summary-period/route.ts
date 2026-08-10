@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic';
  * @returns PlatformSummaryRow[] — { channel, total_sales, title_count, avg_daily }
  */
 export async function GET(request: Request) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { searchParams } = new URL(request.url);
   const startDate = searchParams.get('startDate');
   const endDate = searchParams.get('endDate');

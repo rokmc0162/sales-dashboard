@@ -1,109 +1,131 @@
+import { randomUUID } from 'node:crypto';
+
 import { NextRequest, NextResponse } from 'next/server';
+
+import { readBoundedJson } from '@/lib/auth-route.server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
 import { supabaseServer } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-/**
- * POST /api/upload-debug
- * 업로드 시도 시 원본 파일 + 메타데이터를 Supabase Storage에 저장
- */
-export async function POST(request: NextRequest) {
-  try {
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
-    const metadata = formData.get('metadata') as string | null;
+const DEBUG_BUCKET = 'upload-debug';
+const MAX_DEBUG_FILE_BYTES = 100 * 1024 * 1024;
 
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
-    }
-
-    const meta = metadata ? JSON.parse(metadata) : {};
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const safeName = file.name.replace(/[^a-zA-Z0-9가-힣ぁ-んァ-ヶ一-龠._-]/g, '_');
-    const storagePath = `uploads/${timestamp}_${safeName}`;
-
-    // 파일을 Supabase Storage에 저장
-    const buffer = await file.arrayBuffer();
-    const { error: storageError } = await supabaseServer.storage
-      .from('upload-debug')
-      .upload(storagePath, buffer, {
-        contentType: file.type || 'application/octet-stream',
-        upsert: false,
-      });
-
-    // Storage 버킷이 없으면 생성 시도
-    if (storageError?.message?.includes('not found') || storageError?.message?.includes('Bucket')) {
-      await supabaseServer.storage.createBucket('upload-debug', {
-        public: false,
-        fileSizeLimit: 52428800, // 50MB
-      });
-      // 재시도
-      const { error: retryError } = await supabaseServer.storage
-        .from('upload-debug')
-        .upload(storagePath, buffer, {
-          contentType: file.type || 'application/octet-stream',
-          upsert: false,
-        });
-      if (retryError) {
-        console.error('Storage retry failed:', retryError);
-      }
-    }
-
-    // upload_logs에 기록 (file_path 포함)
-    const logEntry = {
-      upload_type: meta.uploadType || 'sokuhochi',
-      source_file: file.name,
-      row_count: meta.rowCount ?? 0,
-      status: meta.status || 'failed',
-      error_message: meta.errorMessage || null,
-      platforms: meta.platform ? [meta.platform] : null,
-      date_range_start: meta.dateStart || null,
-      date_range_end: meta.dateEnd || null,
-    };
-
-    const { data: logData, error: logError } = await supabaseServer
-      .from('upload_logs')
-      .insert(logEntry)
-      .select('id')
-      .single();
-
-    if (logError) {
-      console.error('Log insert failed:', logError);
-    }
-
-    // 파일 다운로드 URL 생성 (1시간 유효)
-    const { data: urlData } = await supabaseServer.storage
-      .from('upload-debug')
-      .createSignedUrl(storagePath, 3600);
-
-    return NextResponse.json({
-      success: true,
-      logId: logData?.id,
-      filePath: storagePath,
-      downloadUrl: urlData?.signedUrl,
-    });
-  } catch (err) {
-    console.error('Upload debug error:', err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 500 },
-    );
-  }
+function isValidDebugStoragePath(path: string): boolean {
+  if (path.length === 0 || path.length > 512 || !path.startsWith('uploads/')) return false;
+  const segments = path.split('/');
+  return (
+    segments[0] === 'uploads' &&
+    segments.slice(1).every(
+      (segment) =>
+        segment.length > 0 &&
+        segment !== '.' &&
+        segment !== '..' &&
+        !segment.includes('\\') &&
+        !segment.includes('\0'),
+    )
+  );
 }
 
-/**
- * GET /api/upload-debug?path=uploads/...
- * Storage에 저장된 파일의 다운로드 URL 생성
- */
+function preparePayload(value: unknown):
+  | { ok: true; filename: string; sizeBytes: number }
+  | { ok: false } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false };
+  const record = value as Record<string, unknown>;
+  const filename = typeof record.filename === 'string' ? record.filename.trim() : '';
+  const sizeBytes = typeof record.size_bytes === 'number' ? record.size_bytes : Number.NaN;
+  if (
+    filename.length === 0 ||
+    filename.length > 255 ||
+    !Number.isSafeInteger(sizeBytes) ||
+    sizeBytes < 1 ||
+    sizeBytes > MAX_DEBUG_FILE_BYTES
+  ) {
+    return { ok: false };
+  }
+  return { ok: true, filename, sizeBytes };
+}
+
+function buildStoragePath(filename: string): string {
+  const extensionMatch = filename.match(/\.[A-Za-z0-9]{1,12}$/);
+  const extension = extensionMatch?.[0].toLowerCase() ?? '';
+  const base = filename
+    .slice(0, extensionMatch ? -extension.length : undefined)
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .replace(/^\.+/, '')
+    .slice(0, 50) || 'upload';
+  return `uploads/${randomUUID()}_${base}${extension}`;
+}
+
+/** 관리자에게 upload-debug 버킷의 1회용 직접 업로드 권한을 발급합니다. */
+export async function POST(request: NextRequest) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await readBoundedJson(request, 8_192);
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
+
+  const payload = preparePayload(body);
+  if (!payload.ok) {
+    return NextResponse.json({ error: 'invalid upload metadata' }, { status: 400 });
+  }
+
+  const storagePath = buildStoragePath(payload.filename);
+  const { data, error } = await supabaseServer.storage
+    .from(DEBUG_BUCKET)
+    .createSignedUploadUrl(storagePath);
+
+  if (error || !data?.token) {
+    return NextResponse.json({ error: 'upload session unavailable' }, { status: 503 });
+  }
+
+  return NextResponse.json({ path: storagePath, token: data.token });
+}
+
+/** 로그 기록 실패 시 방금 업로드한 debug 원본을 정리합니다. */
+export async function DELETE(request: NextRequest) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+
+  let body: unknown;
+  try {
+    body = await readBoundedJson(request, 1_024);
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
+  const path =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? (body as Record<string, unknown>).path
+      : null;
+  if (typeof path !== 'string' || !isValidDebugStoragePath(path)) {
+    return NextResponse.json({ error: 'invalid path' }, { status: 400 });
+  }
+
+  const { error } = await supabaseServer.storage.from(DEBUG_BUCKET).remove([path]);
+  if (error) {
+    return NextResponse.json({ error: 'cleanup unavailable' }, { status: 503 });
+  }
+  return NextResponse.json({ ok: true });
+}
+
+/** 인증된 관리자에게 uploads/ 내부 파일의 단기 다운로드 URL을 발급합니다. */
 export async function GET(request: NextRequest) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+
   const path = request.nextUrl.searchParams.get('path');
-  if (!path) {
-    return NextResponse.json({ error: 'path required' }, { status: 400 });
+  if (!path || !isValidDebugStoragePath(path)) {
+    return NextResponse.json({ error: 'invalid path' }, { status: 400 });
   }
 
   const { data } = await supabaseServer.storage
-    .from('upload-debug')
-    .createSignedUrl(path, 3600);
+    .from(DEBUG_BUCKET)
+    .createSignedUrl(path, 600);
 
   if (!data?.signedUrl) {
     return NextResponse.json({ error: 'File not found' }, { status: 404 });

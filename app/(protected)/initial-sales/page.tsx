@@ -9,7 +9,11 @@ import {
 import {
   Rocket, Search, X, Check, BarChart3, ChevronDown, ChevronUp,
 } from 'lucide-react';
-import { supabase, fetchTitleMaster } from '@/lib/supabase';
+import {
+  fetchTitleDailySales,
+  fetchTitleMaster,
+  fetchTitleSummaries,
+} from '@/lib/supabase';
 import { PlatformBadge } from '@/components/PlatformBadge';
 import { useApp } from '@/context/AppContext';
 import { format, parseISO, addDays } from 'date-fns';
@@ -150,23 +154,17 @@ export default function InitialSalesPage() {
   useEffect(() => {
     async function loadTitles() {
       setLoading(true);
-      const [rpcResult, masterData] = await Promise.all([
-        supabase.rpc('get_title_summaries'),
+      const [summaryData, masterData] = await Promise.all([
+        fetchTitleSummaries(),
         fetchTitleMaster(),
       ]);
-
-      if (rpcResult.error) {
-        console.error('Error loading titles:', JSON.stringify(rpcResult.error));
-        setLoading(false);
-        return;
-      }
 
       const masterMap = new Map<string, { genre: string | null; company: string | null }>();
       for (const m of masterData) {
         masterMap.set(m.title_jp, { genre: m.genre, company: m.company });
       }
 
-      const result: TitleSummary[] = (rpcResult.data ?? []).map((row: { title_jp: string; title_kr: string | null; channels: string[]; first_date: string; total_sales: number; day_count: number }) => {
+      const result: TitleSummary[] = summaryData.map((row: { title_jp: string; title_kr: string | null; channels: string[]; first_date: string; total_sales: number; day_count: number }) => {
         const master = masterMap.get(row.title_jp);
         return {
           title_jp: row.title_jp,
@@ -241,9 +239,8 @@ export default function InitialSalesPage() {
     setLoadingCurves(true);
     const titleList = Array.from(checkedTitles);
     const promises = titleList.map(async (titleJP, idx) => {
-      const { data } = await supabase.rpc('get_title_daily_sales', { p_title_jp: titleJP });
-      if (!data || data.length === 0) return null;
-      const rows = data as TitleDailySalesRow[];
+      const rows = await fetchTitleDailySales(titleJP) as TitleDailySalesRow[];
+      if (rows.length === 0) return null;
       const titleInfo = titles.find((t) => t.title_jp === titleJP);
       const firstDate = parseISO(rows[0].sale_date);
       const dateMap = new Map<string, number>();

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
 
 export const revalidate = 300;
 
@@ -9,7 +10,10 @@ export const revalidate = 300;
  * platforms 테이블 code와 실제 저장값이 달라 매칭 실패하는 문제 해결
  * @returns Array<{ channel: string; row_count: number }>
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { data, error } = await supabaseServer
     .from('active_channels')
     .select('*');

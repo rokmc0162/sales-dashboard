@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
 
 /**
  * GET /api/manage/audit-logs
@@ -14,6 +15,9 @@ import { supabaseServer } from '@/lib/supabase-server';
  * @dynamic force-dynamic (캐시 없음)
  */
 export async function GET(request: Request) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
   const limit = Math.min(200, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));

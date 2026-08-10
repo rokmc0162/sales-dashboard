@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
+import { readAdminJson } from '@/lib/admin-route.server';
 
 /**
  * POST /api/manage/sales/confirm
@@ -11,7 +13,11 @@ import { supabaseServer } from '@/lib/supabase-server';
  * @dynamic force-dynamic (캐시 없음)
  */
 export async function POST(request: Request) {
-  const body = await request.json();
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+  const parsedBody = await readAdminJson(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
   const { ids } = body;
 
   if (!ids || !Array.isArray(ids) || ids.length === 0) {

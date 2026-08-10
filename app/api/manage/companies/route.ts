@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
+import { readAdminJson } from '@/lib/admin-route.server';
 
 /**
  * GET /api/manage/companies
@@ -9,7 +11,10 @@ import { supabaseServer } from '@/lib/supabase-server';
  * @returns { id, name, title_count }[]
  * @dynamic force-dynamic (캐시 없음)
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { data, error } = await supabaseServer
     .from('production_companies')
     .select('*, titles(count)')
@@ -33,7 +38,11 @@ export async function GET() {
  * @returns 생성된 제작사 또는 { ok: true }
  */
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  const unauthorized = await requireGlobalAdminAuth(req);
+  if (unauthorized) return unauthorized;
+  const parsedBody = await readAdminJson(req);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
 
   if (body.action === 'merge') {
     const { sourceId, targetId } = body;
@@ -75,7 +84,11 @@ export async function POST(req: NextRequest) {
  * @returns 수정된 제작사 레코드
  */
 export async function PUT(req: NextRequest) {
-  const body = await req.json();
+  const unauthorized = await requireGlobalAdminAuth(req);
+  if (unauthorized) return unauthorized;
+  const parsedBody = await readAdminJson(req);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.value;
   const { id, ...updates } = body;
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
 
@@ -97,6 +110,8 @@ export async function PUT(req: NextRequest) {
  * @returns { ok: true }
  */
 export async function DELETE(req: NextRequest) {
+  const unauthorized = await requireGlobalAdminAuth(req);
+  if (unauthorized) return unauthorized;
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });

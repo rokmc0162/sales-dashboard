@@ -4,11 +4,9 @@ let _client: SupabaseClient | null = null;
 
 function getSupabaseServer(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    // During build-time prerendering, env vars may not be available.
-    // Throw so callers catch and return null (client SWR will retry).
-    throw new Error('Missing Supabase environment variables');
+    throw new Error('Missing server-only Supabase service-role configuration');
   }
   if (!_client) {
     _client = createClient(url, key);

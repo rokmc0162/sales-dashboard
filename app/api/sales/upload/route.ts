@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { normalizeChannel } from '@/utils/platformConfig';
 import { buildTitleKrMaps, matchTitleKr } from '@/utils/titleMatcher';
+import { requireGlobalAdminAuth } from '@/lib/global-admin-auth.server';
+import { readBoundedJson } from '@/lib/auth-route.server';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,8 +13,23 @@ export const dynamic = 'force-dynamic';
  * 채널명을 서버 사이드에서 강제 정규화하여 중복 방지
  */
 export async function POST(request: Request) {
-  const body = await request.json();
-  const { rows, source, isPreliminary, isLastBatch = true, skipPostProcess = false, isFirstBatch = true } = body;
+  const unauthorized = await requireGlobalAdminAuth(request);
+  if (unauthorized) return unauthorized;
+  let body: unknown;
+  try {
+    body = await readBoundedJson(request, 12 * 1024 * 1024);
+  } catch {
+    return NextResponse.json({ error: 'invalid or oversized JSON body' }, { status: 413 });
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
+  const { rows, source, isPreliminary, isLastBatch = true, skipPostProcess = false, isFirstBatch = true } = body as Record<string, unknown>;
+  const sourceValue = typeof source === 'string' && source.length <= 100 ? source : 'manual';
+  const preliminary = isPreliminary === true;
+  const lastBatch = isLastBatch !== false;
+  const skipProcessing = skipPostProcess === true;
+  const firstBatch = isFirstBatch !== false;
 
   if (!rows || !Array.isArray(rows)) {
     return NextResponse.json({ error: 'rows array is required' }, { status: 400 });
@@ -36,7 +53,7 @@ export async function POST(request: Request) {
 
   // 누적형 데이터 소스(cmoa Excel 등): 첫 번째 배치에서만 기존 데이터 삭제
   const cumulativeSources = ['sokuhochi_cmoa_excel', 'sokuhochi_cmoa'];
-  if (cumulativeSources.includes(source) && isFirstBatch) {
+  if (cumulativeSources.includes(sourceValue) && firstBatch) {
     // 업로드 데이터의 날짜 범위 파악
     const dates = normalizedRows
       .map((r: Record<string, unknown>) => String(r.sale_date || ''))
@@ -51,7 +68,7 @@ export async function POST(request: Request) {
           .from('daily_sales_v2')
           .delete()
           .eq('channel', channel)
-          .eq('data_source', source)
+          .eq('data_source', sourceValue)
           .gte('sale_date', minDate)
           .lte('sale_date', maxDate);
       }
@@ -69,7 +86,7 @@ export async function POST(request: Request) {
   const minDate = dates[0] || '';
   const maxDate = dates[dates.length - 1] || '';
 
-  if (source === 'weekly_report' && isFirstBatch && minDate) {
+  if (sourceValue === 'weekly_report' && firstBatch && minDate) {
     // Weekly Report 업로드 → 겹치는 속보치 데이터 삭제
     const { count } = await supabaseServer
       .from('daily_sales_v2')
@@ -82,7 +99,7 @@ export async function POST(request: Request) {
       dedupCount = count;
       console.log(`[dedup] weekly_report uploaded: deleted ${count} overlapping sokuhochi rows (${minDate}~${maxDate})`);
     }
-  } else if (source?.startsWith('sokuhochi') && isFirstBatch && minDate) {
+  } else if (sourceValue.startsWith('sokuhochi') && firstBatch && minDate) {
     // 속보치 업로드 → 이미 weekly_report가 있는 날짜의 행 제거 (업로드 전)
     const { data: existingWR } = await supabaseServer
       .from('daily_sales_v2')
@@ -137,8 +154,8 @@ export async function POST(request: Request) {
     const batch = deduped.slice(i, i + batchSize);
     const { data, error } = await supabaseServer.rpc('upsert_daily_sales', {
       p_rows: batch,
-      p_source: source || 'manual',
-      p_is_preliminary: isPreliminary ?? false,
+      p_source: sourceValue,
+      p_is_preliminary: preliminary,
     });
 
     if (error) {
@@ -155,7 +172,7 @@ export async function POST(request: Request) {
   }
 
   // 후처리(신규 작품 등록 + MV 갱신)는 마지막 배치 또는 단일 배치에서만 수행
-  if (isLastBatch && !skipPostProcess) {
+  if (lastBatch && !skipProcessing) {
     // 신규 작품 자동 등록
     try {
       const uploadedTitles = [...new Set(normalizedRows.map((r: Record<string, unknown>) => String(r.title_jp)))];

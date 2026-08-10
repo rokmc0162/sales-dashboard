@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 
 import { supabaseServer } from "@/lib/supabase-server";
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
+import { readBoundedJson } from "@/lib/auth-route.server";
 import { archiveBeforeParse } from "@/features/settlement/lib/storage/archive-before-parse";
 import {
   parseProcessUploadPayload,
@@ -35,9 +36,11 @@ export const runtime = "nodejs";
 // Pro plan extended max duration (beta) allows up to 1800s; deterministic
 // image-PDF OCR (Shueisha) was still hitting the 800s limit in production.
 export const maxDuration = 1800;
+const MAX_MULTIPART_FILES = 200;
+const MAX_MULTIPART_BYTES = 50 * 1024 * 1024;
 
 export async function POST(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const contentType = request.headers.get("content-type") ?? "";
@@ -46,6 +49,14 @@ export async function POST(request: Request) {
       return streamPreparedUploadWithHeartbeat(request);
     }
     return handlePreparedUpload(request);
+  }
+  const contentLengthHeader = request.headers.get("content-length");
+  if (!contentLengthHeader || !/^\d+$/.test(contentLengthHeader)) {
+    return NextResponse.json({ error: "content-length required" }, { status: 411 });
+  }
+  const contentLength = Number(contentLengthHeader);
+  if (contentLength > MAX_MULTIPART_BYTES + 512_000) {
+    return NextResponse.json({ error: "request body too large" }, { status: 413 });
   }
   return handleMultipartUpload(request);
 }
@@ -88,6 +99,10 @@ async function handleMultipartUpload(request: Request) {
 
   const form = await request.formData();
   const files = form.getAll("files") as File[];
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (files.length > MAX_MULTIPART_FILES || totalBytes > MAX_MULTIPART_BYTES) {
+    return NextResponse.json({ error: "upload batch too large" }, { status: 413 });
+  }
   const folderHintValidation = validateFolderHint(form.get("folder"));
   if (!folderHintValidation.ok) {
     return NextResponse.json({ error: folderHintValidation.error }, { status: 400 });
@@ -100,23 +115,22 @@ async function handleMultipartUpload(request: Request) {
   const replaceMonth = form.get("replaceMonth") === "1";
   const runLabel = buildRunLabel(request, form);
 
+  if (replaceMonth) {
+    const adminUnauthorized = await requireSettlementApiAuth(request, "admin");
+    if (adminUnauthorized) return adminUnauthorized;
+    return NextResponse.json(
+      {
+        error:
+          "automatic month replacement is disabled until atomic staging is available; use the explicit admin reset workflow",
+      },
+      { status: 409 },
+    );
+  }
+
   if (files.length === 0) {
     return NextResponse.json({ error: "no files" }, { status: 400 });
   }
   console.log(`[upload]${runLabel} received ${files.length} file(s)`);
-
-  if (replaceMonth && activeMonth) {
-    const { error: delErr } = await supabase
-      .from("sales_records")
-      .delete()
-      .eq("settlement_batch", activeMonth);
-    if (delErr) {
-      return NextResponse.json(
-        { error: `failed to clear month: ${delErr.message}` },
-        { status: 500 },
-      );
-    }
-  }
 
   const lookups = await loadPreparedUploadLookups(store, buildLookupMaps);
   if ("error" in lookups) {
@@ -203,7 +217,7 @@ async function handleMultipartUpload(request: Request) {
 async function handlePreparedUpload(request: Request) {
   let body: unknown;
   try {
-    body = await request.json();
+    body = await readBoundedJson(request, 8_192);
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import { supabaseServer as supabase } from "@/lib/supabase-server";
+import { readBoundedJson } from "@/lib/auth-route.server";
 import {
   buildDirectUploadPath,
   DIRECT_UPLOAD_BUCKET,
@@ -12,12 +13,12 @@ import {
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   let body: unknown;
   try {
-    body = await request.json();
+    body = await readBoundedJson(request, 8_192);
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
@@ -78,12 +79,12 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   let body: unknown;
   try {
-    body = await request.json();
+    body = await readBoundedJson(request, 8_192);
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
