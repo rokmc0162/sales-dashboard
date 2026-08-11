@@ -48,15 +48,17 @@ export function createServiceClient(opts: {
   serviceRoleKey?: string;
 } = {}) {
   const url = opts.url ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // Prefer the RVJP_ alias; the plain name is a compatibility fallback.
+  // Prefer RVJP_DB_ADMIN_TOKEN (Vercel Preview filters env names containing
+  // SERVICE_ROLE_KEY); the older names are compatibility fallbacks.
   // Never fall back to anon/public keys.
   const key =
     opts.serviceRoleKey ??
-    (process.env.RVJP_SUPABASE_SERVICE_ROLE_KEY ||
+    (process.env.RVJP_DB_ADMIN_TOKEN ||
+      process.env.RVJP_SUPABASE_SERVICE_ROLE_KEY ||
       process.env.SUPABASE_SERVICE_ROLE_KEY);
   if (!url || !key) {
     throw new Error(
-      "Supabase service env vars missing — set NEXT_PUBLIC_SUPABASE_URL and RVJP_SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE_KEY).",
+      "Supabase service env vars missing — set NEXT_PUBLIC_SUPABASE_URL and RVJP_DB_ADMIN_TOKEN (or RVJP_SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SERVICE_ROLE_KEY).",
     );
   }
   // Lazy require so the browser bundle never loads this.
@@ -79,6 +81,7 @@ export function hasSupabaseEnv(): boolean {
 
 export function hasServiceRoleKey(): boolean {
   const key =
+    process.env.RVJP_DB_ADMIN_TOKEN ||
     process.env.RVJP_SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_ROLE_KEY;
   return !!key && !key.startsWith("eyJ...");

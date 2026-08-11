@@ -1126,9 +1126,10 @@ async function testGlobalAdminAndSessionLifetime() {
   assert.doesNotMatch(authHandlers, /forgotPasswordAttempts|new Map<string, \{ count/);
 
   // Both server client files must resolve the service-role key in exactly this
-  // order: RVJP_ alias first, plain name as compatibility fallback, nothing else.
+  // order: RVJP_DB_ADMIN_TOKEN first (Vercel Preview filters env names containing
+  // SERVICE_ROLE_KEY), then the RVJP_ alias, then the plain name, nothing else.
   const serviceRoleResolutionOrder =
-    /process\.env\.RVJP_SUPABASE_SERVICE_ROLE_KEY\s*\|\|\s*process\.env\.SUPABASE_SERVICE_ROLE_KEY/;
+    /process\.env\.RVJP_DB_ADMIN_TOKEN\s*\|\|\s*process\.env\.RVJP_SUPABASE_SERVICE_ROLE_KEY\s*\|\|\s*process\.env\.SUPABASE_SERVICE_ROLE_KEY/;
   for (const serverClientPath of [
     "src/lib/supabase-server.ts",
     "src/features/settlement/lib/supabase/server.ts",
