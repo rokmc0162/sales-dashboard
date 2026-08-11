@@ -702,6 +702,7 @@ export type SettlementIntakeMonthInsert = {
 export type SettlementIntakeObjectRow = {
   id: string;
   intake_id: string;
+  replacement_for_object_id: string | null;
   status: SettlementIntakeObjectStatus;
   storage_bucket: string;
   storage_path: string;
@@ -719,6 +720,7 @@ export type SettlementIntakeObjectRow = {
 export type SettlementIntakeObjectInsert = {
   id?: string;
   intake_id: string;
+  replacement_for_object_id?: string | null;
   status?: SettlementIntakeObjectStatus;
   storage_bucket?: string;
   storage_path: string;
@@ -1041,6 +1043,8 @@ export type Database = {
           p_expected_size_bytes: number;
           p_expected_sha256: string;
           p_actor: string;
+          p_expected_draft_revision: number;
+          p_replacement_for_object_id: string | null;
         };
         Returns: SettlementIntakeObjectRow;
       };
@@ -1061,7 +1065,16 @@ export type Database = {
         Args: {
           p_intake_id: string;
           p_object_id: string;
-          p_position: number;
+          p_expected_draft_revision: number;
+          p_actor: string;
+        };
+        Returns: number;
+      };
+      replace_settlement_intake_draft_entry: {
+        Args: {
+          p_intake_id: string;
+          p_old_object_id: string;
+          p_new_object_id: string;
           p_expected_draft_revision: number;
           p_actor: string;
         };

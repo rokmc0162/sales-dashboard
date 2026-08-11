@@ -75,8 +75,8 @@ async function main() {
   // ------------------------------------------------------------------
   assert.match(
     sql,
-    /insert into storage\.buckets \(id, name, public\)\s*values \('settlement-intake', 'settlement-intake', false\)/i,
-    "intake bucket must be created private",
+    /insert into storage\.buckets \(id, name, public, file_size_limit\)\s*values \('settlement-intake', 'settlement-intake', false, 104857600\)/i,
+    "intake bucket must be created private with the 100 MiB object cap",
   );
   assert.match(
     sql,
@@ -169,6 +169,7 @@ async function main() {
     "finalize_settlement_intake_object",
     "quarantine_settlement_intake_object",
     "upsert_settlement_intake_draft_entry",
+    "replace_settlement_intake_draft_entry",
     "remove_settlement_intake_draft_entry",
     "reorder_settlement_intake_draft",
   ];

@@ -26,10 +26,11 @@ const TABLES = [
 
 const FUNCTIONS: ReadonlyArray<[name: string, args: string]> = [
   ["create_settlement_intake", "text, text"],
-  ["register_settlement_intake_object", "uuid, text, text, text, bigint, text, text"],
+  ["register_settlement_intake_object", "uuid, text, text, text, bigint, text, text, bigint, uuid"],
   ["finalize_settlement_intake_object", "uuid, bigint, text, text"],
   ["quarantine_settlement_intake_object", "uuid, text, text"],
-  ["upsert_settlement_intake_draft_entry", "uuid, uuid, integer, bigint, text"],
+  ["upsert_settlement_intake_draft_entry", "uuid, uuid, bigint, text"],
+  ["replace_settlement_intake_draft_entry", "uuid, uuid, uuid, bigint, text"],
   ["remove_settlement_intake_draft_entry", "uuid, uuid, bigint, text"],
   ["reorder_settlement_intake_draft", "uuid, uuid\\[\\], bigint, text"],
   ["submit_settlement_intake_version", "uuid, bigint, text"],
@@ -90,6 +91,18 @@ async function main() {
   );
   assert.match(sql, /-- rollback \(manual[^\n]*\):/i, "migration must document rollback");
 
+  // ---------------- bucket: private with a hard 100 MiB object cap ----------
+  assert.match(
+    sql,
+    /insert into storage\.buckets \(id, name, public, file_size_limit\)\s*values \('settlement-intake', 'settlement-intake', false, 104857600\)/i,
+    "intake bucket must be created private with file_size_limit = 100 MiB",
+  );
+  assert.match(
+    sql,
+    /on conflict \(id\) do update set public = false, file_size_limit = 104857600/i,
+    "an existing intake bucket must be forced private with the 100 MiB cap",
+  );
+
   // ---------------- months: one intake per valid YYYYMM ----------------
   const months = extractTable(sql, "settlement_intake_months");
   assert.match(months, /month\s+date not null unique/i);
@@ -133,10 +146,14 @@ async function main() {
     /status <> 'finalized' or \(\s*observed_size_bytes is not null\s+and observed_sha256 is not null\s+and observed_size_bytes = expected_size_bytes\s+and observed_sha256 = expected_sha256/i,
     "finalized objects must have observed = expected",
   );
-  assert.match(
+  // Historical finalized objects (frozen into version v1) must be allowed to
+  // share the canonical path of their v2 replacement, so there is no
+  // objects-level live-path unique index; draft-level path uniqueness is
+  // enforced inside the upsert/replace RPCs under the intake advisory lock.
+  assert.doesNotMatch(
     sql,
-    /create unique index idx_settlement_intake_objects_path_key\s+on settlement_intake_objects \(intake_id, path_key\)\s+where status <> 'quarantined'/i,
-    "canonical path_key must be unique among live objects",
+    /idx_settlement_intake_objects_path_key/i,
+    "objects must not carry a live path unique index (v1 + same-path v2 must coexist)",
   );
   const objectGuard = extractFunction(sql, "settlement_intake_objects_guard");
   assert.match(objectGuard, /tg_op = 'DELETE'/i);
@@ -209,6 +226,78 @@ async function main() {
     /create trigger trg_settlement_intake_version_files_source\s+before insert on settlement_intake_version_files/i,
   );
 
+  // ---------------- draft placement + atomic replacement ----------------
+  const registerFunction = extractFunction(sql, "register_settlement_intake_object");
+  assert.match(registerFunction, /for no key update/i, "register must lock the intake revision row");
+  assert.match(
+    registerFunction,
+    /draft_revision <> p_expected_draft_revision/i,
+    "register must re-check the optimistic revision inside its advisory lock",
+  );
+
+  const upsertFunction = extractFunction(sql, "upsert_settlement_intake_draft_entry");
+  assert.match(
+    upsertFunction,
+    /generate_series\(0, 199\)/i,
+    "upsert must allocate positions from the full 0..199 range",
+  );
+  assert.match(
+    upsertFunction,
+    /order by s\.free_position\s+limit 1/i,
+    "upsert must choose the lowest free position, not max+1",
+  );
+  assert.doesNotMatch(
+    upsertFunction,
+    /max\(position\)/i,
+    "upsert must not append with max(position)+1",
+  );
+  assert.match(
+    upsertFunction,
+    /o\.path_key = v_object\.path_key/i,
+    "upsert must enforce canonical-path uniqueness among current draft entries",
+  );
+  assert.match(
+    upsertFunction,
+    /return v_month\.draft_revision;/i,
+    "upsert replay for an object already in the draft must be a revision-preserving no-op",
+  );
+  const replaceFunction = extractFunction(sql, "replace_settlement_intake_draft_entry");
+  assert.match(
+    replaceFunction,
+    /v_new\.path_key <> v_old\.path_key/i,
+    "replace must require the same canonical path",
+  );
+  assert.match(
+    replaceFunction,
+    /v_new\.status <> 'finalized'/i,
+    "replace must require a finalized new object",
+  );
+  assert.match(
+    replaceFunction,
+    /set object_id = p_new_object_id/i,
+    "replace must atomically swap the draft entry to the new object",
+  );
+  assert.doesNotMatch(
+    replaceFunction,
+    /quarantin/i,
+    "replace must never quarantine the old object",
+  );
+  assert.doesNotMatch(
+    replaceFunction,
+    /delete from public\.settlement_intake_draft_entries/i,
+    "replace must swap in place, never remove-then-insert",
+  );
+  assert.doesNotMatch(
+    replaceFunction,
+    /update public\.settlement_intake_objects/i,
+    "replace must not mutate version-referenced source objects",
+  );
+  assert.match(
+    replaceFunction,
+    /'draft_entry_replaced'/,
+    "replace must audit the swap",
+  );
+
   // ---------------- concurrency ----------------
   const reorderFunction = extractFunction(sql, "reorder_settlement_intake_draft");
   assert.match(reorderFunction, /array_ndims\(p_object_ids\) <> 1/i);
@@ -217,6 +306,7 @@ async function main() {
     "create_settlement_intake",
     "register_settlement_intake_object",
     "upsert_settlement_intake_draft_entry",
+    "replace_settlement_intake_draft_entry",
     "remove_settlement_intake_draft_entry",
     "reorder_settlement_intake_draft",
     "submit_settlement_intake_version",
@@ -229,6 +319,7 @@ async function main() {
   }
   for (const name of [
     "upsert_settlement_intake_draft_entry",
+    "replace_settlement_intake_draft_entry",
     "remove_settlement_intake_draft_entry",
     "reorder_settlement_intake_draft",
     "submit_settlement_intake_version",

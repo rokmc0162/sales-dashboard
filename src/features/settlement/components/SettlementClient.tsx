@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type Inp
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, ExternalLink, FolderOpen, Loader2, UploadCloud, Trash2 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import SettlementCompareClient from '@/features/settlement/components/SettlementCompareClient';
+import SettlementIntakeWorkspace from '@/features/settlement/components/SettlementIntakeWorkspace';
 import {
   fetchCurrentSettlementStatus,
   type CurrentDataStatus,
@@ -712,6 +713,8 @@ export default function SettlementClient({
           )}
         </p>
       </section>
+
+      <SettlementIntakeWorkspace month={month} />
 
       <section>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">

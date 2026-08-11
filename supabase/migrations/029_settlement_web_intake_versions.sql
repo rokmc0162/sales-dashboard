@@ -16,9 +16,9 @@ begin;
 
 -- Private intake bucket -------------------------------------------------------
 
-insert into storage.buckets (id, name, public)
-values ('settlement-intake', 'settlement-intake', false)
-on conflict (id) do update set public = false;
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('settlement-intake', 'settlement-intake', false, 104857600)
+on conflict (id) do update set public = false, file_size_limit = 104857600;
 
 -- Central path_key validation -------------------------------------------------
 --
@@ -64,6 +64,7 @@ create table settlement_intake_months (
 create table settlement_intake_objects (
   id  uuid primary key default gen_random_uuid(),
   intake_id  uuid not null references settlement_intake_months(id),
+  replacement_for_object_id  uuid references settlement_intake_objects(id) on delete restrict,
   status  varchar(20) not null default 'uploading' check (status in ('uploading','finalized','quarantined')),
   storage_bucket  text not null default 'settlement-intake' check (storage_bucket = 'settlement-intake'),
   storage_path  varchar(200) not null unique check (storage_path ~ '^intake/[0-9]{6}/[0-9a-f]{32}/[0-9a-f]{32}$'),
@@ -87,10 +88,11 @@ create table settlement_intake_objects (
   )
 );
 
--- Canonical client paths must stay unique among live (non-quarantined) objects.
-create unique index idx_settlement_intake_objects_path_key
-  on settlement_intake_objects (intake_id, path_key)
-  where status <> 'quarantined';
+-- Canonical client paths are deliberately NOT unique across the objects
+-- table: a finalized object frozen into version v1 keeps its path while a
+-- replacement object is registered on the same canonical path for v2.
+-- Uniqueness among *current draft entries* is enforced inside the
+-- upsert/replace RPCs below, under the per-intake advisory lock.
 
 create table settlement_intake_draft_entries (
   id  uuid primary key default gen_random_uuid(),
@@ -325,7 +327,9 @@ create or replace function register_settlement_intake_object(
   p_content_type text,
   p_expected_size_bytes bigint,
   p_expected_sha256 text,
-  p_actor text
+  p_actor text,
+  p_expected_draft_revision bigint,
+  p_replacement_for_object_id uuid
 )
 returns public.settlement_intake_objects
 language plpgsql
@@ -335,13 +339,21 @@ as $$
 declare
   v_month public.settlement_intake_months;
   v_object public.settlement_intake_objects;
+  v_replaced public.settlement_intake_objects;
 begin
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('settlement_intake:' || p_intake_id::text, 0));
 
-  select * into v_month from public.settlement_intake_months where id = p_intake_id;
+  select * into v_month
+  from public.settlement_intake_months
+  where id = p_intake_id
+  for no key update;
   if not found then
     raise exception 'unknown settlement intake %', p_intake_id;
+  end if;
+  if v_month.draft_revision <> p_expected_draft_revision then
+    raise exception 'stale draft revision for intake %: expected %, have %',
+      p_intake_id, p_expected_draft_revision, v_month.draft_revision;
   end if;
 
   -- The API must send an already-canonical path_key; nothing is silently
@@ -350,11 +362,26 @@ begin
     raise exception 'invalid settlement intake path_key';
   end if;
 
+  if p_replacement_for_object_id is not null then
+    select o.* into v_replaced
+    from public.settlement_intake_objects o
+    join public.settlement_intake_draft_entries d
+      on d.intake_id = p_intake_id and d.object_id = o.id
+    where o.id = p_replacement_for_object_id
+      and o.intake_id = p_intake_id
+      and o.path_key = p_path_key;
+    if not found then
+      raise exception 'replacement target % is not the current draft object for path %',
+        p_replacement_for_object_id, p_path_key;
+    end if;
+  end if;
+
   insert into public.settlement_intake_objects (
-    intake_id, storage_path, path_key, display_name, content_type,
+    intake_id, replacement_for_object_id, storage_path, path_key, display_name, content_type,
     expected_size_bytes, expected_sha256, created_by
   ) values (
     p_intake_id,
+    p_replacement_for_object_id,
     'intake/' || v_month.month_key || '/'
       || pg_catalog.md5(pg_catalog.gen_random_uuid()::text) || '/'
       || pg_catalog.md5(pg_catalog.gen_random_uuid()::text),
@@ -489,7 +516,6 @@ $$;
 create or replace function upsert_settlement_intake_draft_entry(
   p_intake_id uuid,
   p_object_id uuid,
-  p_position integer,
   p_expected_draft_revision bigint,
   p_actor text
 )
@@ -501,6 +527,7 @@ as $$
 declare
   v_month public.settlement_intake_months;
   v_object public.settlement_intake_objects;
+  v_position integer;
   v_revision bigint;
 begin
   perform pg_catalog.pg_advisory_xact_lock(
@@ -528,12 +555,43 @@ begin
     raise exception 'quarantined object % cannot enter the draft', p_object_id;
   end if;
 
-  insert into public.settlement_intake_draft_entries as d (intake_id, object_id, position)
-  values (p_intake_id, p_object_id, p_position)
-  on conflict (intake_id, object_id) do update
-    set position = excluded.position,
-        revision = d.revision + 1,
-        updated_at = pg_catalog.now();
+  -- Idempotent replay: an object already in the draft keeps its position and
+  -- the current revision is returned unchanged.
+  if exists (
+    select 1 from public.settlement_intake_draft_entries
+    where intake_id = p_intake_id and object_id = p_object_id
+  ) then
+    return v_month.draft_revision;
+  end if;
+
+  -- Canonical-path uniqueness among *current draft entries*, enforced here
+  -- under the intake advisory lock (the objects table deliberately allows a
+  -- historical finalized object to share the path of its replacement).
+  if exists (
+    select 1
+    from public.settlement_intake_draft_entries d
+    join public.settlement_intake_objects o on o.id = d.object_id
+    where d.intake_id = p_intake_id and o.path_key = v_object.path_key
+  ) then
+    raise exception 'canonical path % is already in the draft for intake %',
+      v_object.path_key, p_intake_id;
+  end if;
+
+  -- Deterministic placement: the lowest free position in 0..199.
+  select s.free_position into v_position
+  from pg_catalog.generate_series(0, 199) as s(free_position)
+  where not exists (
+    select 1 from public.settlement_intake_draft_entries d
+    where d.intake_id = p_intake_id and d.position = s.free_position
+  )
+  order by s.free_position
+  limit 1;
+  if v_position is null then
+    raise exception 'draft for intake % is full', p_intake_id;
+  end if;
+
+  insert into public.settlement_intake_draft_entries (intake_id, object_id, position)
+  values (p_intake_id, p_object_id, v_position);
 
   update public.settlement_intake_months
      set draft_revision = draft_revision + 1
@@ -542,7 +600,94 @@ begin
 
   insert into public.settlement_intake_audit (intake_id, actor, action, detail)
   values (p_intake_id, p_actor, 'draft_entry_upserted',
-          pg_catalog.jsonb_build_object('object_id', p_object_id, 'position', p_position));
+          pg_catalog.jsonb_build_object('object_id', p_object_id, 'position', v_position));
+
+  return v_revision;
+end;
+$$;
+
+create or replace function replace_settlement_intake_draft_entry(
+  p_intake_id uuid,
+  p_old_object_id uuid,
+  p_new_object_id uuid,
+  p_expected_draft_revision bigint,
+  p_actor text
+)
+returns bigint
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_month public.settlement_intake_months;
+  v_old public.settlement_intake_objects;
+  v_new public.settlement_intake_objects;
+  v_revision bigint;
+begin
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('settlement_intake:' || p_intake_id::text, 0));
+
+  select * into v_month
+  from public.settlement_intake_months
+  where id = p_intake_id
+  for no key update;
+  if not found then
+    raise exception 'unknown settlement intake %', p_intake_id;
+  end if;
+  if v_month.draft_revision <> p_expected_draft_revision then
+    raise exception 'stale draft revision for intake %: expected %, have %',
+      p_intake_id, p_expected_draft_revision, v_month.draft_revision;
+  end if;
+
+  if p_old_object_id = p_new_object_id then
+    raise exception 'replacement for intake % must use a different object', p_intake_id;
+  end if;
+
+  select * into v_old
+  from public.settlement_intake_objects
+  where id = p_old_object_id and intake_id = p_intake_id;
+  if not found then
+    raise exception 'object % does not belong to intake %', p_old_object_id, p_intake_id;
+  end if;
+  select * into v_new
+  from public.settlement_intake_objects
+  where id = p_new_object_id and intake_id = p_intake_id;
+  if not found then
+    raise exception 'object % does not belong to intake %', p_new_object_id, p_intake_id;
+  end if;
+  if v_new.path_key <> v_old.path_key then
+    raise exception 'replacement object % must keep canonical path %',
+      p_new_object_id, v_old.path_key;
+  end if;
+  if v_new.status <> 'finalized' then
+    raise exception 'replacement object % must be finalized', p_new_object_id;
+  end if;
+
+  -- Atomic swap: the existing draft entry keeps its position and simply
+  -- starts referencing the new object. The old object row is never mutated
+  -- (it may be frozen into submitted versions); if anything here fails the
+  -- old draft entry remains untouched.
+  update public.settlement_intake_draft_entries d
+     set object_id = p_new_object_id,
+         revision = d.revision + 1,
+         updated_at = pg_catalog.now()
+   where d.intake_id = p_intake_id and d.object_id = p_old_object_id;
+  if not found then
+    raise exception 'object % is not part of the draft for intake %',
+      p_old_object_id, p_intake_id;
+  end if;
+
+  update public.settlement_intake_months
+     set draft_revision = draft_revision + 1
+   where id = p_intake_id
+  returning draft_revision into v_revision;
+
+  insert into public.settlement_intake_audit (intake_id, actor, action, detail)
+  values (p_intake_id, p_actor, 'draft_entry_replaced',
+          pg_catalog.jsonb_build_object(
+            'old_object_id', p_old_object_id,
+            'new_object_id', p_new_object_id,
+            'path_key', v_new.path_key));
 
   return v_revision;
 end;
@@ -827,19 +972,21 @@ revoke all on sequence settlement_intake_audit_id_seq from public, anon, authent
 
 revoke all on function settlement_intake_path_key_ok(text) from public, anon, authenticated;
 revoke all on function create_settlement_intake(text, text) from public, anon, authenticated;
-revoke all on function register_settlement_intake_object(uuid, text, text, text, bigint, text, text) from public, anon, authenticated;
+revoke all on function register_settlement_intake_object(uuid, text, text, text, bigint, text, text, bigint, uuid) from public, anon, authenticated;
 revoke all on function finalize_settlement_intake_object(uuid, bigint, text, text) from public, anon, authenticated;
 revoke all on function quarantine_settlement_intake_object(uuid, text, text) from public, anon, authenticated;
-revoke all on function upsert_settlement_intake_draft_entry(uuid, uuid, integer, bigint, text) from public, anon, authenticated;
+revoke all on function upsert_settlement_intake_draft_entry(uuid, uuid, bigint, text) from public, anon, authenticated;
+revoke all on function replace_settlement_intake_draft_entry(uuid, uuid, uuid, bigint, text) from public, anon, authenticated;
 revoke all on function remove_settlement_intake_draft_entry(uuid, uuid, bigint, text) from public, anon, authenticated;
 revoke all on function reorder_settlement_intake_draft(uuid, uuid[], bigint, text) from public, anon, authenticated;
 revoke all on function submit_settlement_intake_version(uuid, bigint, text) from public, anon, authenticated;
 
 grant execute on function create_settlement_intake(text, text) to service_role;
-grant execute on function register_settlement_intake_object(uuid, text, text, text, bigint, text, text) to service_role;
+grant execute on function register_settlement_intake_object(uuid, text, text, text, bigint, text, text, bigint, uuid) to service_role;
 grant execute on function finalize_settlement_intake_object(uuid, bigint, text, text) to service_role;
 grant execute on function quarantine_settlement_intake_object(uuid, text, text) to service_role;
-grant execute on function upsert_settlement_intake_draft_entry(uuid, uuid, integer, bigint, text) to service_role;
+grant execute on function upsert_settlement_intake_draft_entry(uuid, uuid, bigint, text) to service_role;
+grant execute on function replace_settlement_intake_draft_entry(uuid, uuid, uuid, bigint, text) to service_role;
 grant execute on function remove_settlement_intake_draft_entry(uuid, uuid, bigint, text) to service_role;
 grant execute on function reorder_settlement_intake_draft(uuid, uuid[], bigint, text) to service_role;
 grant execute on function submit_settlement_intake_version(uuid, bigint, text) to service_role;
@@ -856,10 +1003,11 @@ commit;
 --   drop function submit_settlement_intake_version(uuid, bigint, text);
 --   drop function reorder_settlement_intake_draft(uuid, uuid[], bigint, text);
 --   drop function remove_settlement_intake_draft_entry(uuid, uuid, bigint, text);
---   drop function upsert_settlement_intake_draft_entry(uuid, uuid, integer, bigint, text);
+--   drop function replace_settlement_intake_draft_entry(uuid, uuid, uuid, bigint, text);
+--   drop function upsert_settlement_intake_draft_entry(uuid, uuid, bigint, text);
 --   drop function quarantine_settlement_intake_object(uuid, text, text);
 --   drop function finalize_settlement_intake_object(uuid, bigint, text, text);
---   drop function register_settlement_intake_object(uuid, text, text, text, bigint, text, text);
+--   drop function register_settlement_intake_object(uuid, text, text, text, bigint, text, text, bigint, uuid);
 --   drop function create_settlement_intake(text, text);
 --   drop function settlement_intake_version_files_check_source();
 --   drop function settlement_intake_objects_guard();
