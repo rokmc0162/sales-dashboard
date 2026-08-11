@@ -6,7 +6,7 @@ Production deployment is blocked until every step below is verified. Never print
 
 1. Apply `025_add_upload_log_storage_path.sql`.
 2. Apply `026_shared_forgot_password_rate_limit.sql`.
-3. Add `SUPABASE_SERVICE_ROLE_KEY` as a **Sensitive**, server-only Vercel environment variable for the required environments.
+3. Add `RVJP_SUPABASE_SERVICE_ROLE_KEY` as a **Sensitive**, server-only Vercel environment variable for the required environments. (Server clients prefer the `RVJP_` alias and treat plain `SUPABASE_SERVICE_ROLE_KEY` as a compatibility fallback in any environment. They never fall back to anon/public keys.)
 4. Confirm Auth0 variables exist in the same Vercel environment scope and mark client secrets Sensitive.
 5. Deploy the Auth0-protected application code.
 6. Smoke-test with real Auth0 identities:

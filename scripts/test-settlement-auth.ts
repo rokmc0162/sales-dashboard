@@ -1125,9 +1125,32 @@ async function testGlobalAdminAndSessionLifetime() {
   assert.match(authHandlers, /consumeForgotPasswordRateLimit/);
   assert.doesNotMatch(authHandlers, /forgotPasswordAttempts|new Map<string, \{ count/);
 
+  // Both server client files must resolve the service-role key in exactly this
+  // order: RVJP_ alias first, plain name as compatibility fallback, nothing else.
+  const serviceRoleResolutionOrder =
+    /process\.env\.RVJP_SUPABASE_SERVICE_ROLE_KEY\s*\|\|\s*process\.env\.SUPABASE_SERVICE_ROLE_KEY/;
+  for (const serverClientPath of [
+    "src/lib/supabase-server.ts",
+    "src/features/settlement/lib/supabase/server.ts",
+  ]) {
+    const source = await readFile(serverClientPath, "utf8");
+    assert.match(source, serviceRoleResolutionOrder);
+    // The plain name must never be preferred over the alias or chain into a
+    // further fallback (anon/public or otherwise).
+    assert.doesNotMatch(source, /(?<!RVJP_)SUPABASE_SERVICE_ROLE_KEY\s*(\|\||\?\?)/);
+    // No statement touching the service-role key may reference a public key.
+    const serviceRoleStatements = source
+      .split(";")
+      .filter((statement) => statement.includes("SUPABASE_SERVICE_ROLE_KEY"));
+    assert.ok(serviceRoleStatements.length > 0, `${serverClientPath}: no service-role statements`);
+    for (const statement of serviceRoleStatements) {
+      assert.doesNotMatch(statement, /NEXT_PUBLIC_\w*(ANON|KEY)|ANON_KEY/);
+    }
+  }
+
+  // supabase-server.ts is service-role-only, so no anon key may appear at all.
   const serverClient = await readFile("src/lib/supabase-server.ts", "utf8");
-  assert.match(serverClient, /SUPABASE_SERVICE_ROLE_KEY/);
-  assert.doesNotMatch(serverClient, /\|\| process\.env\.NEXT_PUBLIC_SUPABASE_ANON_KEY/);
+  assert.doesNotMatch(serverClient, /NEXT_PUBLIC_SUPABASE_ANON_KEY/);
 
   for (const contentMasterPath of [
     "app/api/content-master/route.ts",
