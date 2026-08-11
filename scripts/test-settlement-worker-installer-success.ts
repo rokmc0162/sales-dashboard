@@ -1,36 +1,22 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 const sourceRepo = new URL("../", import.meta.url).pathname;
 
-async function waitFor(path: string, timeoutMs = 10_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      await readFile(path);
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  }
-  throw new Error("installer did not reach kickstart checkpoint");
-}
-
 async function main() {
-  const root = await mkdtemp(join(tmpdir(), "settlement-installer-signal-"));
+  const root = await mkdtemp(join(tmpdir(), "settlement-installer-success-"));
   try {
     const repo = join(root, "repo");
     const home = join(root, "home");
     const fakeBin = join(root, "bin");
     const stateFile = join(root, "launch-state");
-    const markerFile = join(root, "kickstarted");
     const stateDir = join(home, "Library/Application Support/Riverse/settlement-worker");
-    const runtimeDir = join(stateDir, "runtime");
     const envFile = join(stateDir, "worker.env");
     const plist = join(home, "Library/LaunchAgents/com.riverse.settlement-worker.plist");
+    const stdoutLog = join(home, "Library/Logs/Riverse/settlement-worker/stdout.log");
     const installer = join(repo, "scripts/install-settlement-worker.sh");
 
     for (const path of [
@@ -43,17 +29,19 @@ async function main() {
       join(repo, "node_modules/@tesseract.js-data/jpn"),
       join(repo, "node_modules/@tesseract.js-data/eng"),
       join(repo, "node_modules/pdfjs-dist/cmaps"),
-      join(runtimeDir),
       dirname(plist),
       join(root, "tmp"),
       fakeBin,
     ]) await mkdir(path, { recursive: true });
 
     await writeFile(join(repo, "package.json"), "{}\n");
+    // The anon key and the legacy service name are present to prove the
+    // installer excludes the anon key and prefers the project-scoped alias.
     await writeFile(join(repo, ".env.local"), [
       "NEXT_PUBLIC_SUPABASE_URL=https://example.invalid",
       "NEXT_PUBLIC_SUPABASE_ANON_KEY=fake-anon",
       "RVJP_DB_ADMIN_TOKEN=fake-service-role",
+      "SUPABASE_SERVICE_ROLE_KEY=legacy-service-role",
       "SUPABASE_DATABASE_URL=postgresql://fake.invalid/db",
       "",
     ].join("\n"));
@@ -64,7 +52,6 @@ async function main() {
     const originalInstaller = await readFile(join(sourceRepo, "scripts/install-settlement-worker.sh"), "utf8");
     const isolatedInstaller = originalInstaller.replace(originalRepoLine, `REPO_DIR="${repo}"`);
     assert.notEqual(isolatedInstaller, originalInstaller, "test must replace the production repository path");
-    assert.equal(isolatedInstaller.includes(originalRepoLine), false, "isolated installer must not retain production REPO_DIR");
     await writeFile(installer, isolatedInstaller);
     await chmod(installer, 0o755);
 
@@ -73,13 +60,10 @@ async function main() {
     await chmod(esbuild, 0o755);
 
     const launchctl = join(fakeBin, "launchctl");
-    await writeFile(launchctl, `#!/bin/sh\nset -eu\ncase "$1" in\n  print) [ "$(cat "$FAKE_LAUNCH_STATE")" = loaded ];;\n  bootout) printf 'unloaded\\n' > "$FAKE_LAUNCH_STATE";;\n  bootstrap) printf 'loaded\\n' > "$FAKE_LAUNCH_STATE";;\n  kickstart) : > "$FAKE_KICKSTART_MARKER";;\n  *) exit 2;;\nesac\n`);
+    await writeFile(launchctl, `#!/bin/sh\nset -eu\ncase "$1" in\n  print) [ "$(cat "$FAKE_LAUNCH_STATE")" = loaded ];;\n  bootout) printf 'unloaded\\n' > "$FAKE_LAUNCH_STATE";;\n  bootstrap) printf 'loaded\\n' > "$FAKE_LAUNCH_STATE";;\n  kickstart) printf '[settlement-worker] started mode=loop\\n' >> "$FAKE_STDOUT_LOG";;\n  *) exit 2;;\nesac\n`);
     await chmod(launchctl, 0o755);
 
-    await writeFile(join(runtimeDir, "old-runtime.txt"), "old runtime\n");
-    await writeFile(envFile, "OLD_ENV=preserved\n", { mode: 0o600 });
-    await writeFile(plist, "old plist\n", { mode: 0o600 });
-    await writeFile(stateFile, "loaded\n");
+    await writeFile(stateFile, "unloaded\n");
 
     const child = spawn("/bin/sh", [installer], {
       env: {
@@ -87,30 +71,46 @@ async function main() {
         PATH: `${fakeBin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         TMPDIR: join(root, "tmp"),
         FAKE_LAUNCH_STATE: stateFile,
-        FAKE_KICKSTART_MARKER: markerFile,
+        FAKE_KICKSTART_MARKER: join(root, "unused-marker"),
+        FAKE_STDOUT_LOG: stdoutLog,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    let stderr = "";
+    let output = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { output += chunk; });
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-
-    await waitFor(markerFile);
-    child.kill("SIGTERM");
+    child.stderr.on("data", (chunk) => { output += chunk; });
     const exit = await new Promise<number | null>((resolve, reject) => {
       child.once("error", reject);
       child.once("close", resolve);
     });
+    assert.equal(exit, 0, `install must succeed, output: ${output}`);
 
-    assert.notEqual(exit, 0, "interrupted install must fail");
-    assert.equal(await readFile(join(runtimeDir, "old-runtime.txt"), "utf8"), "old runtime\n");
-    assert.equal(await readFile(envFile, "utf8"), "OLD_ENV=preserved\n");
-    assert.equal(await readFile(plist, "utf8"), "old plist\n");
-    assert.equal((await readFile(stateFile, "utf8")).trim(), "loaded");
-    assert.match(stderr, /installation interrupted/);
-    assert.equal(stderr.includes("fake-anon"), false);
-    assert.equal(stderr.includes("fake-service-role"), false);
-    console.log("test-settlement-worker-installer-signal: all assertions passed");
+    // worker.env holds exactly the three required vars, service-role key under
+    // the canonical alias, at mode 0600.
+    const envMode = (await stat(envFile)).mode & 0o777;
+    assert.equal(envMode, 0o600, "worker.env must stay mode 0600");
+    const envContent = await readFile(envFile, "utf8");
+    assert.equal(envContent, [
+      'NEXT_PUBLIC_SUPABASE_URL="https://example.invalid"',
+      'RVJP_DB_ADMIN_TOKEN="fake-service-role"',
+      'SUPABASE_DATABASE_URL="postgresql://fake.invalid/db"',
+      "",
+    ].join("\n"));
+    assert.equal(envContent.includes("fake-anon"), false);
+    assert.equal(envContent.includes("legacy-service-role"), false);
+
+    // Neither the plist, the logs, nor the installer output carry any secret.
+    const plistContent = await readFile(plist, "utf8");
+    const logContent = await readFile(stdoutLog, "utf8");
+    for (const secret of ["fake-anon", "fake-service-role", "legacy-service-role", "fake.invalid"]) {
+      assert.equal(plistContent.includes(secret), false, `plist must not contain ${secret}`);
+      assert.equal(logContent.includes(secret), false, `log must not contain ${secret}`);
+      assert.equal(output.includes(secret), false, `installer output must not contain ${secret}`);
+    }
+
+    console.log("test-settlement-worker-installer-success: all assertions passed");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

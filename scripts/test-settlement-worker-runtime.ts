@@ -6,8 +6,9 @@ async function source(path: string): Promise<string> {
 }
 
 async function main() {
-  const [worker, workerStore, jobStore, routes, installer, plist] = await Promise.all([
+  const [worker, workerEnv, workerStore, jobStore, routes, installer, plist] = await Promise.all([
     source("scripts/settlement-worker.ts"),
+    source("src/features/settlement/lib/worker/worker-env.ts"),
     source("src/features/settlement/lib/worker/run-job.ts"),
     source("src/features/settlement/lib/worker/job-contract.ts"),
     Promise.all([
@@ -20,14 +21,24 @@ async function main() {
 
   for (const required of [
     "NEXT_PUBLIC_SUPABASE_URL",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "RVJP_DB_ADMIN_TOKEN",
+    "RVJP_SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_DATABASE_URL",
   ]) {
-    assert.match(worker, new RegExp(required));
+    assert.match(workerEnv, new RegExp(required));
     assert.match(installer, new RegExp(required));
   }
-  assert.doesNotMatch(worker, /SUPABASE_SERVICE_ROLE_KEY|createServiceClient/);
-  assert.match(worker, /createClient<Database>\(env\.supabaseUrl, env\.anonKey/);
+  // The service-role migration must never reintroduce an anon fallback.
+  assert.doesNotMatch(worker, /ANON_KEY|anonKey|createServiceClient/);
+  assert.doesNotMatch(workerEnv, /ANON_KEY|anonKey/);
+  assert.doesNotMatch(installer, /ANON_KEY/);
+  assert.match(
+    workerEnv,
+    /env\.RVJP_DB_ADMIN_TOKEN \|\|\s*env\.RVJP_SUPABASE_SERVICE_ROLE_KEY \|\|\s*env\.SUPABASE_SERVICE_ROLE_KEY/,
+  );
+  assert.match(worker, /requireWorkerEnvironment/);
+  assert.match(worker, /createClient<Database>\(env\.supabaseUrl, env\.serviceRoleKey/);
   assert.match(worker, /postgres\(env\.databaseUrl/);
   assert.match(worker, /allowIncompleteSources:\s*true/);
   assert.match(worker, /shouldStop:\s*\(\) => stopping/);
@@ -44,7 +55,6 @@ async function main() {
 
   assert.doesNotMatch(routes, /createServiceClient|createSupabaseSettlementJobApiStore|SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(routes, /createPostgresSettlementJobApiStore\(\)/);
-  assert.doesNotMatch(installer, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(installer, /Library\/Application Support\/Riverse\/settlement-worker/);
   assert.match(installer, /fs\.writeFileSync\([^;]+mode:\s*0o600/);
   assert.match(installer, /STAGED_ENV_FILE="\$TMP_DIR\/worker\.env"/);
@@ -82,7 +92,7 @@ async function main() {
   assert.match(plist, /__BUNDLE_PATH__/);
   assert.doesNotMatch(plist, /tsx|__REPO_DIR__/);
   assert.match(plist, /<key>WorkingDirectory<\/key>\s*<string>__STATE_DIR__<\/string>/);
-  assert.doesNotMatch(plist, /\.env\.local|SUPABASE_DATABASE_URL|SUPABASE_ANON_KEY/);
+  assert.doesNotMatch(plist, /\.env\.local|SUPABASE_DATABASE_URL|SUPABASE_ANON_KEY|SERVICE_ROLE|RVJP_DB_ADMIN_TOKEN/);
   assert.match(plist, /<key>ExitTimeOut<\/key>[\s\S]*?<integer>30<\/integer>/);
 
   console.log("test-settlement-worker-runtime: all assertions passed");

@@ -59,15 +59,21 @@ mkdir -p "$(dirname "$STAGED_RUNTIME/$BUNDLE_REL")"
 "$NODE_PATH" --env-file="$ENV_FILE" -e '
   const fs = require("node:fs");
   const destination = process.argv[1];
-  const names = [
-    "NEXT_PUBLIC_SUPABASE_URL",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-    "SUPABASE_DATABASE_URL",
+  // Prefer RVJP_DB_ADMIN_TOKEN (Vercel Preview filters env names containing
+  // SERVICE_ROLE_KEY); the older names are compatibility fallbacks.
+  // Never fall back to anon/public keys.
+  const serviceRoleKey =
+    process.env.RVJP_DB_ADMIN_TOKEN ||
+    process.env.RVJP_SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const entries = [
+    ["NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL, "NEXT_PUBLIC_SUPABASE_URL"],
+    ["RVJP_DB_ADMIN_TOKEN", serviceRoleKey, "RVJP_DB_ADMIN_TOKEN (or RVJP_SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SERVICE_ROLE_KEY)"],
+    ["SUPABASE_DATABASE_URL", process.env.SUPABASE_DATABASE_URL, "SUPABASE_DATABASE_URL"],
   ];
-  const lines = names.map((name) => {
-    const value = process.env[name];
+  const lines = entries.map(([name, value, label]) => {
     if (!value || /[\r\n]/.test(value)) {
-      throw new Error(`missing or invalid worker environment: ${name}`);
+      throw new Error(`missing or invalid worker environment: ${label}`);
     }
     return `${name}=${JSON.stringify(value)}`;
   });

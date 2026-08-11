@@ -16,6 +16,7 @@ import {
   runSettlementJob,
   validateSettlementWorkbook,
 } from "../src/features/settlement/lib/worker/run-job";
+import { requireWorkerEnvironment } from "../src/features/settlement/lib/worker/worker-env";
 
 const MIN_POLL_MS = 1_000;
 const MAX_POLL_MS = 60_000;
@@ -41,27 +42,6 @@ function workerId(): string {
     throw new Error("SETTLEMENT_WORKER_ID must be 1 to 128 printable characters");
   }
   return value;
-}
-
-function requireWorkerEnvironment(): {
-  supabaseUrl: string;
-  anonKey: string;
-  databaseUrl: string;
-} {
-  const missing = [
-    "NEXT_PUBLIC_SUPABASE_URL",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-    "SUPABASE_DATABASE_URL",
-  ]
-    .filter((name) => !process.env[name]);
-  if (missing.length > 0) {
-    throw new Error(`Missing required worker environment: ${missing.join(", ")}`);
-  }
-  return {
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string,
-    databaseUrl: process.env.SUPABASE_DATABASE_URL as string,
-  };
 }
 
 async function main() {
@@ -94,7 +74,7 @@ async function main() {
   process.on("SIGINT", requestStop);
 
   try {
-    const supabase = createClient<Database>(env.supabaseUrl, env.anonKey, {
+    const supabase = createClient<Database>(env.supabaseUrl, env.serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const workerStore = createPostgresSettlementWorkerStore(sql, supabase);
