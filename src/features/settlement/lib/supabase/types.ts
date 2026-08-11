@@ -677,6 +677,146 @@ export type SalesRecordInsert = {
 }
 
 // ------------------------------------------------------------------ //
+// settlement web intake (migration 029)                              //
+// ------------------------------------------------------------------ //
+
+export type SettlementIntakeObjectStatus = "uploading" | "finalized" | "quarantined";
+
+export type SettlementIntakeMonthRow = {
+  id: string;
+  month: string;
+  month_key: string;
+  draft_revision: number;
+  created_by: string;
+  created_at: string;
+};
+export type SettlementIntakeMonthInsert = {
+  id?: string;
+  month: string;
+  month_key: string;
+  draft_revision?: number;
+  created_by: string;
+  created_at?: string;
+};
+
+export type SettlementIntakeObjectRow = {
+  id: string;
+  intake_id: string;
+  status: SettlementIntakeObjectStatus;
+  storage_bucket: string;
+  storage_path: string;
+  path_key: string;
+  display_name: string;
+  content_type: string;
+  expected_size_bytes: number;
+  expected_sha256: string;
+  observed_size_bytes: number | null;
+  observed_sha256: string | null;
+  quarantine_reason: string | null;
+  created_by: string;
+  created_at: string;
+};
+export type SettlementIntakeObjectInsert = {
+  id?: string;
+  intake_id: string;
+  status?: SettlementIntakeObjectStatus;
+  storage_bucket?: string;
+  storage_path: string;
+  path_key: string;
+  display_name: string;
+  content_type: string;
+  expected_size_bytes: number;
+  expected_sha256: string;
+  observed_size_bytes?: number | null;
+  observed_sha256?: string | null;
+  quarantine_reason?: string | null;
+  created_by: string;
+  created_at?: string;
+};
+
+export type SettlementIntakeDraftEntryRow = {
+  id: string;
+  intake_id: string;
+  object_id: string;
+  position: number;
+  revision: number;
+  created_at: string;
+  updated_at: string;
+};
+export type SettlementIntakeDraftEntryInsert = {
+  id?: string;
+  intake_id: string;
+  object_id: string;
+  position: number;
+  revision?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type SettlementIntakeAuditRow = {
+  id: number;
+  intake_id: string;
+  actor: string;
+  action: string;
+  detail: Json | null;
+  created_at: string;
+};
+export type SettlementIntakeAuditInsert = {
+  id?: number;
+  intake_id: string;
+  actor: string;
+  action: string;
+  detail?: Json | null;
+  created_at?: string;
+};
+
+export type SettlementIntakeVersionRow = {
+  id: string;
+  intake_id: string;
+  version_no: number;
+  file_count: number;
+  total_size_bytes: number;
+  manifest_sha256: string;
+  submitted_by: string;
+  created_at: string;
+};
+export type SettlementIntakeVersionInsert = {
+  id?: string;
+  intake_id: string;
+  version_no: number;
+  file_count: number;
+  total_size_bytes: number;
+  manifest_sha256: string;
+  submitted_by: string;
+  created_at?: string;
+};
+
+export type SettlementIntakeVersionFileRow = {
+  id: string;
+  version_id: string;
+  object_id: string;
+  position: number;
+  path_key: string;
+  display_name: string;
+  size_bytes: number;
+  sha256: string;
+  storage_path: string;
+  created_at: string;
+};
+export type SettlementIntakeVersionFileInsert = {
+  id?: string;
+  version_id: string;
+  object_id: string;
+  position: number;
+  path_key: string;
+  display_name: string;
+  size_bytes: number;
+  sha256: string;
+  storage_path: string;
+  created_at?: string;
+};
+
+// ------------------------------------------------------------------ //
 // Main Database type                                                 //
 // ------------------------------------------------------------------ //
 
@@ -782,6 +922,42 @@ export type Database = {
         Update: Partial<SettlementJobFileInsert>;
         Relationships: [];
       };
+      settlement_intake_months: {
+        Row: SettlementIntakeMonthRow;
+        Insert: SettlementIntakeMonthInsert;
+        Update: Partial<SettlementIntakeMonthInsert>;
+        Relationships: [];
+      };
+      settlement_intake_objects: {
+        Row: SettlementIntakeObjectRow;
+        Insert: SettlementIntakeObjectInsert;
+        Update: Partial<SettlementIntakeObjectInsert>;
+        Relationships: [];
+      };
+      settlement_intake_draft_entries: {
+        Row: SettlementIntakeDraftEntryRow;
+        Insert: SettlementIntakeDraftEntryInsert;
+        Update: Partial<SettlementIntakeDraftEntryInsert>;
+        Relationships: [];
+      };
+      settlement_intake_audit: {
+        Row: SettlementIntakeAuditRow;
+        Insert: SettlementIntakeAuditInsert;
+        Update: { [K in never]: never };
+        Relationships: [];
+      };
+      settlement_intake_versions: {
+        Row: SettlementIntakeVersionRow;
+        Insert: SettlementIntakeVersionInsert;
+        Update: { [K in never]: never };
+        Relationships: [];
+      };
+      settlement_intake_version_files: {
+        Row: SettlementIntakeVersionFileRow;
+        Insert: SettlementIntakeVersionFileInsert;
+        Update: { [K in never]: never };
+        Relationships: [];
+      };
     };
     Views: {
       v_monthly_summary: {
@@ -851,6 +1027,71 @@ export type Database = {
           p_workbook_row_count?: number | null;
         };
         Returns: boolean;
+      };
+      create_settlement_intake: {
+        Args: { p_month_key: string; p_actor: string };
+        Returns: SettlementIntakeMonthRow;
+      };
+      register_settlement_intake_object: {
+        Args: {
+          p_intake_id: string;
+          p_path_key: string;
+          p_display_name: string;
+          p_content_type: string;
+          p_expected_size_bytes: number;
+          p_expected_sha256: string;
+          p_actor: string;
+        };
+        Returns: SettlementIntakeObjectRow;
+      };
+      finalize_settlement_intake_object: {
+        Args: {
+          p_object_id: string;
+          p_observed_size_bytes: number;
+          p_observed_sha256: string;
+          p_actor: string;
+        };
+        Returns: SettlementIntakeObjectRow;
+      };
+      quarantine_settlement_intake_object: {
+        Args: { p_object_id: string; p_reason: string; p_actor: string };
+        Returns: SettlementIntakeObjectRow;
+      };
+      upsert_settlement_intake_draft_entry: {
+        Args: {
+          p_intake_id: string;
+          p_object_id: string;
+          p_position: number;
+          p_expected_draft_revision: number;
+          p_actor: string;
+        };
+        Returns: number;
+      };
+      remove_settlement_intake_draft_entry: {
+        Args: {
+          p_intake_id: string;
+          p_object_id: string;
+          p_expected_draft_revision: number;
+          p_actor: string;
+        };
+        Returns: number;
+      };
+      reorder_settlement_intake_draft: {
+        Args: {
+          p_intake_id: string;
+          p_object_ids: string[];
+          p_expected_draft_revision: number;
+          p_actor: string;
+        };
+        Returns: number;
+      };
+      submit_settlement_intake_version: {
+        Args: {
+          p_intake_id: string;
+          p_expected_draft_revision: number;
+          p_actor: string;
+        };
+        Returns: SettlementIntakeVersionRow;
       };
     };
     Enums: { [K in never]: never };
