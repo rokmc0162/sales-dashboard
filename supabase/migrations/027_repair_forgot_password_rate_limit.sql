@@ -1,18 +1,11 @@
 begin;
 
-create table if not exists public.auth_rate_limits (
-  limiter_key text primary key,
-  window_started_at timestamptz not null,
-  attempts integer not null check (attempts > 0)
-);
-
-create index if not exists auth_rate_limits_window_started_at_idx
-  on public.auth_rate_limits (window_started_at);
-
-alter table public.auth_rate_limits enable row level security;
-
-revoke all privileges on table public.auth_rate_limits from public, anon, authenticated;
-grant all privileges on table public.auth_rate_limits to service_role;
+-- Repair for databases where 026 was applied with PL/pgSQL variables named
+-- current_attempts/current_window/current_time. Inside the embedded INSERT the
+-- name current_time resolved to the SQL CURRENT_TIME expression (time with
+-- time zone), so the function failed at execution time. This migration only
+-- replaces consume_forgot_password_rate_limit with unambiguous v_ names; it is
+-- idempotent and safe on fresh installs that already ran the corrected 026.
 
 create or replace function public.consume_forgot_password_rate_limit(
   p_key text,

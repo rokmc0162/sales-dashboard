@@ -1104,7 +1104,7 @@ async function testGlobalAdminAndSessionLifetime() {
   assert.doesNotMatch(additiveMigration, /revoke|drop policy/i);
 
   const lockdownMigration = await readFile(
-    "supabase/migrations/027_revoke_direct_client_access.sql",
+    "supabase/migrations/028_revoke_direct_client_access.sql",
     "utf8",
   );
   assert.match(lockdownMigration, /revoke all privileges on all tables in schema public from public, anon, authenticated/i);
@@ -1113,13 +1113,36 @@ async function testGlobalAdminAndSessionLifetime() {
   assert.match(lockdownMigration, /'public' = any\(roles\)/i);
   assert.match(lockdownMigration, /schemaname = 'storage'[\s\S]+tablename = 'objects'/i);
 
-  const rateLimitMigration = await readFile(
+  // The limiter function must use unambiguous v_-prefixed PL/pgSQL variables:
+  // a variable named current_time resolves to the SQL CURRENT_TIME expression
+  // inside embedded SQL and breaks the function at execution time. 027 repairs
+  // databases that ran the original 026 body; 026 itself is fixed for fresh
+  // installs. Both must satisfy identical structural checks.
+  for (const rateLimitMigrationPath of [
     "supabase/migrations/026_shared_forgot_password_rate_limit.sql",
-    "utf8",
-  );
-  assert.match(rateLimitMigration, /consume_forgot_password_rate_limit/);
-  assert.match(rateLimitMigration, /security definer/i);
-  assert.match(rateLimitMigration, /grant execute[\s\S]+to service_role/i);
+    "supabase/migrations/027_repair_forgot_password_rate_limit.sql",
+  ]) {
+    const rateLimitMigration = await readFile(rateLimitMigrationPath, "utf8");
+    assert.match(rateLimitMigration, /create or replace function public\.consume_forgot_password_rate_limit/i);
+    assert.match(rateLimitMigration, /security definer/i);
+    assert.match(rateLimitMigration, /set search_path = public, pg_temp/i);
+    assert.match(
+      rateLimitMigration,
+      /revoke execute on function public\.consume_forgot_password_rate_limit\(text, integer, integer\)\s+from public, anon, authenticated/i,
+    );
+    assert.match(
+      rateLimitMigration,
+      /grant execute on function public\.consume_forgot_password_rate_limit\(text, integer, integer\)\s+to service_role/i,
+    );
+    assert.match(rateLimitMigration, /v_now timestamptz := clock_timestamp\(\)/i);
+    // Comments may name the historical bug; executable SQL must not.
+    const executableSql = rateLimitMigration.replace(/--[^\n]*/g, "");
+    assert.doesNotMatch(
+      executableSql,
+      /\bcurrent_time\b/i,
+      `${rateLimitMigrationPath}: current_time collides with the SQL CURRENT_TIME keyword`,
+    );
+  }
 
   const authHandlers = await readFile("src/lib/auth-handlers.server.ts", "utf8");
   assert.match(authHandlers, /consumeForgotPasswordRateLimit/);
