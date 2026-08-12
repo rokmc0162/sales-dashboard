@@ -257,6 +257,9 @@ export type SettlementJobRow = {
   worker_id: string | null;
   lease_expires_at: string | null;
   heartbeat_at: string | null;
+  source_version_id: string | null;
+  claim_token: string | null;
+  attempt_count: number;
   parser_version: string | null;
   rule_version: string | null;
   error_summary: string | null;
@@ -280,6 +283,9 @@ export type SettlementJobInsert = {
   worker_id?: string | null;
   lease_expires_at?: string | null;
   heartbeat_at?: string | null;
+  source_version_id?: string | null;
+  claim_token?: string | null;
+  attempt_count?: number;
   parser_version?: string | null;
   rule_version?: string | null;
   error_summary?: string | null;
@@ -298,7 +304,8 @@ export type SettlementJobFileStatus = "queued" | "processing" | "completed" | "s
 export type SettlementJobFileRow = {
   id: string;
   job_id: string;
-  upload_id: string;
+  upload_id: string | null;
+  source_version_file_id: string | null;
   position: number;
   folder_hint: string | null;
   status: SettlementJobFileStatus;
@@ -316,7 +323,8 @@ export type SettlementJobFileRow = {
 export type SettlementJobFileInsert = {
   id?: string;
   job_id: string;
-  upload_id: string;
+  upload_id?: string | null;
+  source_version_file_id?: string | null;
   position: number;
   folder_hint?: string | null;
   status?: SettlementJobFileStatus;
@@ -990,6 +998,15 @@ export type Database = {
         Args: {
           p_month: string;
           p_files: Json;
+          p_parser_version?: string | null;
+          p_rule_version?: string | null;
+        };
+        Returns: string;
+      };
+      enqueue_settlement_version_job: {
+        Args: {
+          p_source_version_id: string;
+          p_actor: string;
           p_parser_version?: string | null;
           p_rule_version?: string | null;
         };

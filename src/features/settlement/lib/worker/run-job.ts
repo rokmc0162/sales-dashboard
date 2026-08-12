@@ -209,6 +209,14 @@ export async function runSettlementJob(
   let processed = 0;
   let failed = 0;
 
+  // Migration 030 keeps version jobs out of the legacy claim RPC. Fail closed
+  // even if a caller bypasses that RPC: do not heartbeat, mutate files,
+  // generate a workbook, upload an artifact, or invoke the legacy finish RPC.
+  if (job.source_version_id !== null) {
+    logger.error(`[settlement-worker] job=${job.id} unsupported source contract`);
+    return { outcome: "failed", filesProcessed: 0, filesFailed: 0 };
+  }
+
   const heartbeat = (stage: SettlementJobStage, current: number) => deps.store.heartbeat({
     jobId: job.id,
     workerId,
@@ -259,6 +267,13 @@ export async function runSettlementJob(
   }
   files.sort((a, b) => a.position - b.position);
   if (files.length !== job.progress_total) return finishFailed("job file count mismatch");
+  if (!files.every((file): file is SettlementJobFileRow & {
+    upload_id: string;
+    source_version_file_id: null;
+  } => file.upload_id !== null && file.source_version_file_id === null)) {
+    logger.error(`[settlement-worker] job=${job.id} unsupported file source contract`);
+    return { outcome: "failed", filesProcessed: 0, filesFailed: 0 };
+  }
   // A reclaimed lease may find the prior worker stopped inside a file. The
   // underlying upload pipeline is not transactional, so replaying that file
   // could duplicate raw evidence or race a still-finishing worker. Fail closed
@@ -484,7 +499,7 @@ export function createPostgresSettlementWorkerStore(
     async listFiles(jobId) {
       return sql<SettlementJobFileRow[]>`
         select
-          id, job_id, upload_id, position, folder_hint, status,
+          id, job_id, upload_id, source_version_file_id, position, folder_hint, status,
           parsed_rows, sales_records_written, sales_records_skipped_duplicates,
           result_summary, error_summary, created_at, updated_at, started_at, completed_at
         from settlement_job_files

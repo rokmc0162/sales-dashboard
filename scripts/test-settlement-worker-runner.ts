@@ -43,6 +43,9 @@ function job(total = 2): SettlementJobRow {
     worker_id: workerId,
     lease_expires_at: "2026-08-01T01:00:00.000Z",
     heartbeat_at: now,
+    source_version_id: null,
+    claim_token: "99999999-9999-4999-8999-999999999999",
+    attempt_count: 1,
     parser_version: null,
     rule_version: null,
     error_summary: null,
@@ -62,6 +65,7 @@ function file(position: number): SettlementJobFileRow {
     id: `${position + 2}2222222-2222-4222-8222-222222222222`.slice(0, 36),
     job_id: jobId,
     upload_id: `${position + 3}3333333-3333-4333-8333-333333333333`.slice(0, 36),
+    source_version_file_id: null,
     position,
     folder_hint: position === 0 ? "folder-a" : null,
     status: "queued",
@@ -126,6 +130,51 @@ async function main() {
     `job-artifacts/2026-06/${jobId}.xlsx`,
   );
   assert.match(buildSettlementJobArtifactPath(job()), /^[A-Za-z0-9/._-]+$/);
+
+  {
+    const state = memoryStore([file(0)]);
+    let processed = false;
+    let loaded = false;
+    const result = await runSettlementJob(
+      { ...job(1), source_version_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+      workerId,
+      3_600,
+      {
+        ...baseDeps(state.store),
+        processUpload: async () => { processed = true; return { status: 200, body: {} }; },
+        loadRecords: async () => { loaded = true; return { records: [], loadError: null, sourceWarnings: [] }; },
+      },
+    );
+    assert.deepEqual(result, { outcome: "failed", filesProcessed: 0, filesFailed: 0 });
+    assert.equal(processed, false);
+    assert.equal(loaded, false);
+    assert.equal(state.heartbeats.length, 0);
+    assert.equal(state.patches.length, 0);
+    assert.equal(state.artifacts.length, 0);
+    assert.equal(state.finishes.length, 0);
+  }
+
+  {
+    const versionFile = {
+      ...file(0),
+      upload_id: null,
+      source_version_file_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    };
+    const state = memoryStore([versionFile]);
+    let processed = false;
+    let loaded = false;
+    const result = await runSettlementJob(job(1), workerId, 3_600, {
+      ...baseDeps(state.store),
+      processUpload: async () => { processed = true; return { status: 200, body: {} }; },
+      loadRecords: async () => { loaded = true; return { records: [], loadError: null, sourceWarnings: [] }; },
+    });
+    assert.deepEqual(result, { outcome: "failed", filesProcessed: 0, filesFailed: 0 });
+    assert.equal(processed, false);
+    assert.equal(loaded, false);
+    assert.equal(state.patches.length, 0);
+    assert.equal(state.artifacts.length, 0);
+    assert.equal(state.finishes.length, 0);
+  }
 
   {
     const state = memoryStore([file(0), file(1)]);
@@ -361,6 +410,8 @@ async function main() {
     const store = createPostgresSettlementWorkerStore(fixture.sql, storageClient);
 
     assert.deepEqual(await store.listFiles(jobId), [queuedFile]);
+    assert.match(fixture.calls[0].text, /source_version_file_id/,
+      "legacy file query must materialize the nullable version-contract column");
     assert.equal(await store.updateFile({
       jobId,
       workerId,
