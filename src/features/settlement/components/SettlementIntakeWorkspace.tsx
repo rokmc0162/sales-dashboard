@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type InputHTMLAttributes } from 'react';
 import { AlertCircle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronRight, FolderOpen, History, Loader2, RefreshCw, Send, Trash2, UploadCloud } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+import SettlementPublicationResult from './SettlementPublicationResult';
 import {
   IntakeApiError,
   ensureIntakeWorkspace,
@@ -658,6 +659,7 @@ export default function SettlementIntakeWorkspace({ month }: { month: string }) 
           </ul>
         )}
       </div>
+      <SettlementPublicationResult month={month} latestVersionNo={versions[0]?.version_no ?? null} />
     </section>
   );
 }

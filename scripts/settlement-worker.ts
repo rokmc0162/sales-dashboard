@@ -25,6 +25,10 @@ import { readSettlementDriveBackupConfig } from "../src/features/settlement/lib/
 import { createPostgresDriveBackupStore } from "../src/features/settlement/lib/worker/drive-backup-runner";
 import { backupClaimedVersionArtifacts } from "../src/features/settlement/lib/worker/version-drive-backup";
 import {
+  createVersionPublicationStore,
+  publishClaimedVersionWorkbook,
+} from "../src/features/settlement/lib/worker/version-publication";
+import {
   createPostgresVersionSourceFence,
   createPostgresVersionSourceStore,
   materializeClaimedVersionSnapshot,
@@ -135,6 +139,7 @@ async function main() {
     const driveBackupConfig = readSettlementDriveBackupConfig();
     const driveBackup = driveBackupConfig.enabled ? driveBackupConfig : null;
     const driveBackupStore = createPostgresDriveBackupStore(sql);
+    const publicationStore = createVersionPublicationStore(sql, supabase);
     let driveClient: SettlementDriveClient | null = null;
     const [{ parseFile: versionParseFile }, { toSalesRecords: versionToSalesRecords, buildLookupMaps: versionBuildLookupMaps }, { xlsxArchiveDigest }] = await Promise.all([
       import("../src/features/settlement/lib/parsers/index"),
@@ -192,6 +197,12 @@ async function main() {
               shouldStop: () => stopping,
             });
           },
+          publishWorkbook: (input) => publishClaimedVersionWorkbook({
+            identity: input.identity,
+            candidatePath: input.workbook.workbook.candidatePath,
+            workbookSha256: input.workbook.workbook.evidence.workbookSha256,
+            workbookSizeBytes: input.workbook.workbook.evidence.workbookSizeBytes,
+          }, publicationStore),
         }),
         claimLegacy: () => claimSettlementJob(sql, id, leaseSeconds),
         runLegacy,

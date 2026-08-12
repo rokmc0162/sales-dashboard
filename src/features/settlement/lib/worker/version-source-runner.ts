@@ -16,6 +16,7 @@ import type {
   VersionDriveBackupEvidence,
   VersionDriveBackupOutcome,
 } from "./version-drive-backup";
+import type { VersionPublicationOutcome } from "./version-publication";
 
 type Sql = postgres.Sql;
 
@@ -25,7 +26,7 @@ export type VersionSnapshotRunOutcome =
 
 export type VersionProcessingRunOutcome =
   | {
-      outcome: "backup_ready";
+      outcome: "published";
       result: Extract<ProcessingArtifactOutcome, { outcome: "workbook_ready" }> & {
         backups: VersionDriveBackupEvidence[];
       };
@@ -69,6 +70,12 @@ export interface VersionProcessingRunDependencies extends VersionSnapshotRunDepe
     workbook: Extract<ProcessingArtifactOutcome, { outcome: "workbook_ready" }>;
     leaseSeconds: number;
   }): Promise<VersionDriveBackupOutcome>;
+  publishWorkbook(input: {
+    identity: {
+      jobId: string; runId: string; sourceVersionId: string; workerId: string; claimToken: string;
+    };
+    workbook: Extract<ProcessingArtifactOutcome, { outcome: "workbook_ready" }>;
+  }): Promise<VersionPublicationOutcome>;
 }
 
 export async function claimSettlementVersionRun(
@@ -192,7 +199,22 @@ export async function runClaimedVersionProcessing(
     backup = { outcome: "failed" };
   }
   if (backup.outcome === "backup_ready") {
-    return { outcome: "backup_ready", result: { ...artifacts, backups: backup.backups } };
+    let publication: VersionPublicationOutcome;
+    try {
+      publication = await deps.publishWorkbook({ identity, workbook: artifacts });
+    } catch {
+      publication = { outcome: "retry" };
+    }
+    if (publication.outcome === "published") {
+      return { outcome: "published", result: { ...artifacts, backups: backup.backups } };
+    }
+    if (publication.outcome === "lease_lost") return { outcome: "lease_lost" };
+    if (publication.outcome === "retry") {
+      try {
+        return await deps.release(identity) ? { outcome: "retry" } : { outcome: "lease_lost" };
+      } catch { return { outcome: "lease_lost" }; }
+    }
+    return failRun("publication failed");
   }
   if (backup.outcome === "lease_lost") return { outcome: "lease_lost" };
   if (backup.outcome === "retry") {

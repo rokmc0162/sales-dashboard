@@ -16,7 +16,11 @@ function normalizeMonth(value: string): string {
   return trimmed;
 }
 
-export default function InputPreviewWindow({ month }: { month: string }) {
+export default function InputPreviewWindow({
+  month,
+  published = false,
+  revision = null,
+}: { month: string; published?: boolean; revision?: number | null }) {
   const { t } = useApp();
   const normalizedMonth = normalizeMonth(month);
   const validMonth = /^\d{6}$/.test(normalizedMonth);
@@ -26,10 +30,15 @@ export default function InputPreviewWindow({ month }: { month: string }) {
   const [activeSheet, setActiveSheet] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    // The revision is an immutable publication generation. Reading it here
+    // intentionally binds this fetch to a current-pointer change.
+    void revision;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/settlement/preview-v2/${normalizedMonth}`);
+      const res = await fetch(published
+        ? `/api/settlement/publications/${normalizedMonth}/preview`
+        : `/api/settlement/preview-v2/${normalizedMonth}`);
       const json = await res.json().catch(() => ({}));
       if (res.status === 404) {
         setPreview(null);
@@ -49,7 +58,7 @@ export default function InputPreviewWindow({ month }: { month: string }) {
     } finally {
       setLoading(false);
     }
-  }, [normalizedMonth]);
+  }, [normalizedMonth, published, revision]);
 
   useEffect(() => {
     if (validMonth) void load();
@@ -94,21 +103,25 @@ export default function InputPreviewWindow({ month }: { month: string }) {
             {t('새로고침', '更新')}
           </button>
           <a
-            href={`/api/settlement/export-current/${normalizedMonth}.xlsx`}
-            download={`JP_INPUT_CURRENT_${normalizedMonth}.xlsx`}
+            href={published
+              ? `/api/settlement/publications/${normalizedMonth}/download`
+              : `/api/settlement/export-current/${normalizedMonth}.xlsx`}
+            download={published ? `JP_INPUT_${normalizedMonth}.xlsx` : `JP_INPUT_CURRENT_${normalizedMonth}.xlsx`}
             className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
           >
             <Download className="mr-2 h-4 w-4" />
-            {t('현재 파싱본 Excel 다운로드', '現在の解析版Excelをダウンロード')}
+            {published
+              ? t('검증된 최종 Excel 다운로드', '検証済み最終Excelをダウンロード')
+              : t('현재 파싱본 Excel 다운로드', '現在の解析版Excelをダウンロード')}
           </a>
-          <a
+          {!published && <a
             href={`/api/settlement/export-v2/${normalizedMonth}.xlsx`}
             download={`JP_INPUT_V2_${normalizedMonth}.xlsx`}
             className="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 dark:border-slate-700 dark:text-slate-100"
           >
             <Download className="mr-2 h-4 w-4" />
             {t('완전성 검사 후 최종 Excel', '完全性検査後の最終Excel')}
-          </a>
+          </a>}
         </div>
       </header>
 

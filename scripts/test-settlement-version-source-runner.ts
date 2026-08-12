@@ -153,12 +153,16 @@ async function testProcessingRunnerOutcomes(): Promise<void> {
         driveFileId: "drive-file", reused: false,
       }] };
     },
+    publishWorkbook: async () => {
+      events.push("publish");
+      return { outcome: "published", publication: {} };
+    },
     fail: async (input: { errorSummary: string }) => { events.push(`fail:${input.errorSummary}`); return true; },
     release: async () => { events.push("release"); return true; },
   };
   const success = await runClaimedVersionProcessing(RUN, INPUT, base as never);
-  assert.equal(success.outcome, "backup_ready");
-  assert.deepEqual(events, ["snapshot", "artifacts", "backup"]);
+  assert.equal(success.outcome, "published");
+  assert.deepEqual(events, ["snapshot", "artifacts", "backup", "publish"]);
 
   const interruptedEvents: string[] = [];
   let stopChecks = 0;
