@@ -339,6 +339,63 @@ export type SettlementJobFileInsert = {
   completed_at?: string | null;
 };
 
+// ------------------------------------------------------------------ //
+// version-aware processing runs (migration 031)                      //
+// ------------------------------------------------------------------ //
+
+export type SettlementProcessingRunStatus =
+  | "claimed"
+  | "snapshotting"
+  | "snapshot_ready"
+  | "failed"
+  | "released";
+
+export type SettlementProcessingRunRow = {
+  id: string;
+  job_id: string;
+  source_version_id: string;
+  attempt_no: number;
+  parser_version: string | null;
+  rule_version: string | null;
+  status: SettlementProcessingRunStatus;
+  worker_id: string;
+  claim_token: string;
+  lease_expires_at: string | null;
+  heartbeat_at: string;
+  snapshot_manifest_sha256: string | null;
+  snapshot_file_count: number | null;
+  snapshot_total_bytes: number | null;
+  snapshot_ready_at: string | null;
+  error_summary: string | null;
+  claimed_at: string;
+  terminal_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SettlementProcessingRunInsert = {
+  id?: string;
+  job_id: string;
+  source_version_id: string;
+  attempt_no: number;
+  parser_version?: string | null;
+  rule_version?: string | null;
+  status?: SettlementProcessingRunStatus;
+  worker_id: string;
+  claim_token: string;
+  lease_expires_at?: string | null;
+  heartbeat_at: string;
+  snapshot_manifest_sha256?: string | null;
+  snapshot_file_count?: number | null;
+  snapshot_total_bytes?: number | null;
+  snapshot_ready_at?: string | null;
+  error_summary?: string | null;
+  claimed_at?: string;
+  terminal_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
 // sales_records has 60+ columns — factored below
 
 export type MgBalanceRow = {
@@ -932,6 +989,12 @@ export type Database = {
         Update: Partial<SettlementJobFileInsert>;
         Relationships: [];
       };
+      settlement_processing_runs: {
+        Row: SettlementProcessingRunRow;
+        Insert: SettlementProcessingRunInsert;
+        Update: Partial<SettlementProcessingRunInsert>;
+        Relationships: [];
+      };
       settlement_intake_months: {
         Row: SettlementIntakeMonthRow;
         Insert: SettlementIntakeMonthInsert;
@@ -1015,6 +1078,51 @@ export type Database = {
       claim_settlement_job: {
         Args: { p_worker_id: string; p_lease_seconds?: number };
         Returns: SettlementJobRow[];
+      };
+      claim_settlement_version_job: {
+        Args: { p_worker_id: string; p_lease_seconds?: number };
+        Returns: SettlementProcessingRunRow[];
+      };
+      heartbeat_settlement_processing_run: {
+        Args: {
+          p_job_id: string;
+          p_run_id: string;
+          p_worker_id: string;
+          p_claim_token: string;
+          p_lease_seconds: number;
+        };
+        Returns: boolean;
+      };
+      mark_settlement_processing_run_snapshot_ready: {
+        Args: {
+          p_job_id: string;
+          p_run_id: string;
+          p_worker_id: string;
+          p_claim_token: string;
+          p_manifest_sha256: string;
+          p_file_count: number;
+          p_total_bytes: number;
+        };
+        Returns: boolean;
+      };
+      fail_settlement_processing_run: {
+        Args: {
+          p_job_id: string;
+          p_run_id: string;
+          p_worker_id: string;
+          p_claim_token: string;
+          p_error_summary?: string | null;
+        };
+        Returns: boolean;
+      };
+      release_settlement_processing_run: {
+        Args: {
+          p_job_id: string;
+          p_run_id: string;
+          p_worker_id: string;
+          p_claim_token: string;
+        };
+        Returns: boolean;
       };
       heartbeat_settlement_job: {
         Args: {
