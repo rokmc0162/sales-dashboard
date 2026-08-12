@@ -56,20 +56,36 @@ STAGED_ENV_FILE="$TMP_DIR/worker.env"
 GENERATED_PLIST="$TMP_DIR/$LABEL.plist"
 mkdir -p "$(dirname "$STAGED_RUNTIME/$BUNDLE_REL")"
 
-"$NODE_PATH" --env-file="$ENV_FILE" -e '
+"$NODE_PATH" -e '
   const fs = require("node:fs");
+  const { parseEnv } = require("node:util");
+  if (typeof parseEnv !== "function") {
+    throw new Error("Node.js 20.12 or newer is required for worker environment parsing");
+  }
   const destination = process.argv[1];
+  const existingEnvFile = process.argv[2];
+  const sourceEnvFile = process.argv[3];
+  const parseFile = (file, required) => {
+    if (!fs.existsSync(file)) {
+      if (required) throw new Error("worker source environment is missing");
+      return {};
+    }
+    return parseEnv(fs.readFileSync(file, "utf8"));
+  };
+  const source = parseFile(sourceEnvFile, true);
+  const existing = parseFile(existingEnvFile, false);
+  // A nonempty inherited process value wins; an empty inherited value does
+  // not mask a nonempty .env.local value.
+  const fresh = (name) => process.env[name] || source[name];
   // Prefer RVJP_DB_ADMIN_TOKEN (Vercel Preview filters env names containing
   // SERVICE_ROLE_KEY); the older names are compatibility fallbacks.
   // Never fall back to anon/public keys.
-  const serviceRoleKey =
-    process.env.RVJP_DB_ADMIN_TOKEN ||
-    process.env.RVJP_SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceRoleKey = fresh("RVJP_DB_ADMIN_TOKEN") ||
+    fresh("RVJP_SUPABASE_SERVICE_ROLE_KEY") || fresh("SUPABASE_SERVICE_ROLE_KEY");
   const entries = [
-    ["NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL, "NEXT_PUBLIC_SUPABASE_URL"],
+    ["NEXT_PUBLIC_SUPABASE_URL", fresh("NEXT_PUBLIC_SUPABASE_URL"), "NEXT_PUBLIC_SUPABASE_URL"],
     ["RVJP_DB_ADMIN_TOKEN", serviceRoleKey, "RVJP_DB_ADMIN_TOKEN (or RVJP_SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SERVICE_ROLE_KEY)"],
-    ["SUPABASE_DATABASE_URL", process.env.SUPABASE_DATABASE_URL, "SUPABASE_DATABASE_URL"],
+    ["SUPABASE_DATABASE_URL", fresh("SUPABASE_DATABASE_URL"), "SUPABASE_DATABASE_URL"],
   ];
   const lines = entries.map(([name, value, label]) => {
     if (!value || /[\r\n]/.test(value)) {
@@ -77,8 +93,26 @@ mkdir -p "$(dirname "$STAGED_RUNTIME/$BUNDLE_REL")"
     }
     return `${name}=${JSON.stringify(value)}`;
   });
+  // Re-serialize only this allowlist. Fresh nonempty values replace existing
+  // values; otherwise a valid existing value survives the reinstall.
+  const optionalKeys = [
+    "SETTLEMENT_VERSION_PROCESSING_ENABLED",
+    "SETTLEMENT_DRIVE_BACKUP_ENABLED",
+    "GOOGLE_DRIVE_CLIENT_EMAIL",
+    "GOOGLE_DRIVE_PRIVATE_KEY",
+    "GOOGLE_DRIVE_SHARED_DRIVE_ID",
+    "GOOGLE_DRIVE_BACKUP_ROOT_FOLDER_ID",
+    "SETTLEMENT_VERSION_WORK_ROOT",
+  ];
+  for (const name of optionalKeys) {
+    let value = fresh(name) || existing[name];
+    if (!value) continue;
+    if (name === "GOOGLE_DRIVE_PRIVATE_KEY") value = value.replaceAll("\\n", "\n");
+    else if (/[\r\n]/.test(value)) throw new Error(`invalid worker environment: ${name}`);
+    lines.push(`${name}=${JSON.stringify(value)}`);
+  }
   fs.writeFileSync(destination, `${lines.join("\n")}\n`, { mode: 0o600 });
-' "$STAGED_ENV_FILE"
+' "$STAGED_ENV_FILE" "$WORKER_ENV_FILE" "$ENV_FILE"
 chmod 600 "$STAGED_ENV_FILE"
 
 "$ESBUILD" "$REPO_DIR/scripts/settlement-worker.ts" \

@@ -77,7 +77,16 @@ async function main() {
     await chmod(launchctl, 0o755);
 
     await writeFile(join(runtimeDir, "old-runtime.txt"), "old runtime\n");
-    await writeFile(envFile, "OLD_ENV=preserved\n", { mode: 0o600 });
+    // Failed installs must restore the previous worker.env byte for byte,
+    // including manually placed optional Drive/version settings.
+    const previousEnv = [
+      "OLD_ENV=preserved",
+      'SETTLEMENT_DRIVE_BACKUP_ENABLED="true"',
+      'GOOGLE_DRIVE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\nFAKEFAKEFAKE\\n-----END PRIVATE KEY-----\\n"',
+      "SETTLEMENT_VERSION_WORK_ROOT=/Volumes/FakeSSD2/settlement-work",
+      "",
+    ].join("\n");
+    await writeFile(envFile, previousEnv, { mode: 0o600 });
     await writeFile(plist, "old plist\n", { mode: 0o600 });
     await writeFile(stateFile, "loaded\n");
 
@@ -104,12 +113,13 @@ async function main() {
 
     assert.notEqual(exit, 0, "interrupted install must fail");
     assert.equal(await readFile(join(runtimeDir, "old-runtime.txt"), "utf8"), "old runtime\n");
-    assert.equal(await readFile(envFile, "utf8"), "OLD_ENV=preserved\n");
+    assert.equal(await readFile(envFile, "utf8"), previousEnv);
     assert.equal(await readFile(plist, "utf8"), "old plist\n");
     assert.equal((await readFile(stateFile, "utf8")).trim(), "loaded");
     assert.match(stderr, /installation interrupted/);
     assert.equal(stderr.includes("fake-anon"), false);
     assert.equal(stderr.includes("fake-service-role"), false);
+    assert.equal(stderr.includes("FAKEFAKEFAKE"), false);
     console.log("test-settlement-worker-installer-signal: all assertions passed");
   } finally {
     await rm(root, { recursive: true, force: true });

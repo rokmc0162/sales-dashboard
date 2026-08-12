@@ -65,26 +65,32 @@ async function main() {
 
     await writeFile(stateFile, "unloaded\n");
 
-    const child = spawn("/bin/sh", [installer], {
-      env: {
-        HOME: home,
-        PATH: `${fakeBin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-        TMPDIR: join(root, "tmp"),
-        FAKE_LAUNCH_STATE: stateFile,
-        FAKE_KICKSTART_MARKER: join(root, "unused-marker"),
-        FAKE_STDOUT_LOG: stdoutLog,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let output = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { output += chunk; });
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => { output += chunk; });
-    const exit = await new Promise<number | null>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", resolve);
-    });
+    async function runInstaller(): Promise<{ exit: number | null; output: string }> {
+      const child = spawn("/bin/sh", [installer], {
+        env: {
+          HOME: home,
+          PATH: `${fakeBin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+          TMPDIR: join(root, "tmp"),
+          FAKE_LAUNCH_STATE: stateFile,
+          FAKE_KICKSTART_MARKER: join(root, "unused-marker"),
+          FAKE_STDOUT_LOG: stdoutLog,
+          SETTLEMENT_DRIVE_BACKUP_ENABLED: "",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk) => { output += chunk; });
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => { output += chunk; });
+      const exit = await new Promise<number | null>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", resolve);
+      });
+      return { exit, output };
+    }
+
+    const { exit, output } = await runInstaller();
     assert.equal(exit, 0, `install must succeed, output: ${output}`);
 
     // worker.env holds exactly the three required vars, service-role key under
@@ -108,6 +114,62 @@ async function main() {
       assert.equal(plistContent.includes(secret), false, `plist must not contain ${secret}`);
       assert.equal(logContent.includes(secret), false, `log must not contain ${secret}`);
       assert.equal(output.includes(secret), false, `installer output must not contain ${secret}`);
+    }
+
+    // Reinstall: optional Drive/version settings manually placed in the
+    // installed worker.env must survive verbatim, a nonempty .env.local value
+    // must replace its worker.env counterpart, and keys outside the preserve
+    // list must be dropped.
+    await writeFile(envFile, envContent + [
+      'SETTLEMENT_VERSION_PROCESSING_ENABLED="true"',
+      'SETTLEMENT_DRIVE_BACKUP_ENABLED="false"',
+      'export GOOGLE_DRIVE_CLIENT_EMAIL = "fake-drive-worker@fake.iam.gserviceaccount.com"',
+      'GOOGLE_DRIVE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----',
+      'FAKEFAKEFAKE',
+      '-----END PRIVATE KEY-----',
+      '"',
+      'GOOGLE_DRIVE_SHARED_DRIVE_ID="fake-shared-drive"',
+      'GOOGLE_DRIVE_BACKUP_ROOT_FOLDER_ID="fake-backup-root"',
+      "SETTLEMENT_VERSION_WORK_ROOT=/Volumes/FakeSSD2/settlement-work",
+      'UNRELATED_MANUAL_KEY="dropped-on-reinstall"',
+      "",
+    ].join("\n"), { mode: 0o600 });
+    await writeFile(join(repo, ".env.local"), [
+      "NEXT_PUBLIC_SUPABASE_URL=https://example.invalid",
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY=fake-anon",
+      "RVJP_DB_ADMIN_TOKEN=fake-service-role",
+      "SUPABASE_SERVICE_ROLE_KEY=legacy-service-role",
+      "SUPABASE_DATABASE_URL=postgresql://fake.invalid/db",
+      "SETTLEMENT_DRIVE_BACKUP_ENABLED=true",
+      "",
+    ].join("\n"));
+
+    const rerun = await runInstaller();
+    assert.equal(rerun.exit, 0, `reinstall must succeed, output: ${rerun.output}`);
+
+    assert.equal((await stat(envFile)).mode & 0o777, 0o600, "worker.env must stay mode 0600 after reinstall");
+    const reinstalledEnv = await readFile(envFile, "utf8");
+    assert.equal(reinstalledEnv, [
+      'NEXT_PUBLIC_SUPABASE_URL="https://example.invalid"',
+      'RVJP_DB_ADMIN_TOKEN="fake-service-role"',
+      'SUPABASE_DATABASE_URL="postgresql://fake.invalid/db"',
+      'SETTLEMENT_VERSION_PROCESSING_ENABLED="true"',
+      'SETTLEMENT_DRIVE_BACKUP_ENABLED="true"',
+      'GOOGLE_DRIVE_CLIENT_EMAIL="fake-drive-worker@fake.iam.gserviceaccount.com"',
+      'GOOGLE_DRIVE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\nFAKEFAKEFAKE\\n-----END PRIVATE KEY-----\\n"',
+      'GOOGLE_DRIVE_SHARED_DRIVE_ID="fake-shared-drive"',
+      'GOOGLE_DRIVE_BACKUP_ROOT_FOLDER_ID="fake-backup-root"',
+      'SETTLEMENT_VERSION_WORK_ROOT="/Volumes/FakeSSD2/settlement-work"',
+      "",
+    ].join("\n"));
+
+    // Preserved values must never leak into the plist, logs, or output.
+    const reinstalledPlist = await readFile(plist, "utf8");
+    const reinstalledLog = await readFile(stdoutLog, "utf8");
+    for (const secret of ["FAKEFAKEFAKE", "fake-drive-worker", "fake-shared-drive", "fake-backup-root", "FakeSSD2"]) {
+      assert.equal(reinstalledPlist.includes(secret), false, `plist must not contain ${secret}`);
+      assert.equal(reinstalledLog.includes(secret), false, `log must not contain ${secret}`);
+      assert.equal(rerun.output.includes(secret), false, `installer output must not contain ${secret}`);
     }
 
     console.log("test-settlement-worker-installer-success: all assertions passed");
