@@ -19,9 +19,11 @@ export type SettlementDriveClientLimits = {
 
 export type SettlementDriveOperation =
   | "createFolder"
+  | "findUniqueByAppProperties"
   | "getFileMetadata"
   | "listAllChildren"
-  | "startResumableUpload";
+  | "startResumableUpload"
+  | "uploadResumableBytes";
 
 export class SettlementDriveError extends Error {
   override readonly name = "SettlementDriveError";
@@ -53,20 +55,28 @@ export type SettlementDriveFileMetadata = {
   trashed?: boolean;
   driveId?: string;
   webViewLink?: string;
+  appProperties?: Record<string, string>;
 };
+
+export type SettlementDriveAppProperties = Record<string, string>;
 
 type ResumableUploadInput = {
   parentId: string;
   name: string;
   mimeType: string;
   sizeBytes: number;
+  appProperties?: SettlementDriveAppProperties;
+};
+
+type CreateFolderInput = {
+  appProperties?: SettlementDriveAppProperties;
 };
 
 const API_ORIGIN = "https://www.googleapis.com";
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const METADATA_FIELDS =
-  "id,name,mimeType,parents,size,md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,modifiedTime,trashed,driveId,webViewLink";
-const WRITE_FIELDS = "id,name,mimeType,parents,driveId,webViewLink";
+  "id,name,mimeType,parents,size,md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,modifiedTime,trashed,driveId,webViewLink,appProperties";
+const WRITE_FIELDS = METADATA_FIELDS;
 const LIST_FIELDS = `nextPageToken,files(${METADATA_FIELDS})`;
 const DRIVE_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 const MIME_TYPE_PATTERN =
@@ -79,6 +89,9 @@ const SHA1_PATTERN = /^[a-f0-9]{40}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const RFC3339_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+const APP_PROPERTY_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+const APP_PROPERTY_VALUE_PATTERN = /^[A-Za-z0-9._:-]{1,124}$/;
+const MAX_APP_PROPERTIES = 16;
 const MAX_REQUEST_NAME_CODE_POINTS = 255;
 const MAX_REQUEST_NAME_UTF8_BYTES = 1_024;
 const MAX_JSON_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -167,6 +180,44 @@ function validateSize(
   operation: SettlementDriveOperation,
 ): void {
   if (!Number.isSafeInteger(value) || value < 0) throw failure(operation);
+}
+
+function normalizeAppProperties(
+  value: SettlementDriveAppProperties | undefined,
+  operation: SettlementDriveOperation,
+): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (Object.getPrototypeOf(value) !== Object.prototype) throw failure(operation);
+  const entries = Object.entries(value);
+  if (entries.length < 1 || entries.length > MAX_APP_PROPERTIES) throw failure(operation);
+  entries.sort(([left], [right]) => compareCodePoints(left, right));
+  const result: Record<string, string> = {};
+  for (const [key, item] of entries) {
+    if (
+      typeof item !== "string" ||
+      !APP_PROPERTY_KEY_PATTERN.test(key) ||
+      !APP_PROPERTY_VALUE_PATTERN.test(item)
+    ) {
+      throw failure(operation);
+    }
+    result[key] = item;
+  }
+  return result;
+}
+
+function sameAppProperties(
+  left: Record<string, string> | undefined,
+  right: Record<string, string>,
+): boolean {
+  if (!left) return false;
+  const leftKeys = Object.keys(left).sort(compareCodePoints);
+  const rightKeys = Object.keys(right).sort(compareCodePoints);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
+}
+
+function isExactParent(parents: string[] | undefined, parentId: string): boolean {
+  return parents?.length === 1 && parents[0] === parentId;
 }
 
 function isValidOpaqueResponseString(value: unknown): value is string {
@@ -350,6 +401,17 @@ function validateMetadata(
     }
     result.webViewLink = value.webViewLink;
   }
+  if (value.appProperties !== undefined) {
+    if (!isRecord(value.appProperties)) throw failure(operation, status);
+    try {
+      result.appProperties = normalizeAppProperties(
+        value.appProperties as Record<string, string>,
+        operation,
+      );
+    } catch {
+      throw failure(operation, status);
+    }
+  }
 
   return result;
 }
@@ -459,10 +521,12 @@ export class SettlementDriveClient {
   async createFolder(
     parentId: string,
     name: string,
+    input: CreateFolderInput = {},
   ): Promise<SettlementDriveFileMetadata> {
     const operation = "createFolder";
     validateDriveId(parentId, operation);
     validateRequestName(name, operation);
+    const appProperties = normalizeAppProperties(input.appProperties, operation);
 
     const url = new URL("/drive/v3/files", API_ORIGIN);
     url.searchParams.set("supportsAllDrives", "true");
@@ -474,6 +538,7 @@ export class SettlementDriveClient {
         name,
         mimeType: FOLDER_MIME_TYPE,
         parents: [parentId],
+        ...(appProperties ? { appProperties } : {}),
       }),
     });
     return validateMetadata(
@@ -481,6 +546,48 @@ export class SettlementDriveClient {
       operation,
       response.status,
     );
+  }
+
+  async findUniqueByAppProperties(
+    parentId: string,
+    appProperties: SettlementDriveAppProperties,
+  ): Promise<SettlementDriveFileMetadata | null> {
+    const operation = "findUniqueByAppProperties";
+    validateDriveId(parentId, operation);
+    validateDriveId(this.sharedDriveId, operation);
+    const properties = normalizeAppProperties(appProperties, operation)!;
+    const clauses = Object.entries(properties).map(
+      ([key, value]) => `appProperties has { key='${key}' and value='${value}' }`,
+    );
+    const url = new URL("/drive/v3/files", API_ORIGIN);
+    url.searchParams.set(
+      "q",
+      `'${parentId}' in parents and trashed = false and ${clauses.join(" and ")}`,
+    );
+    url.searchParams.set("corpora", "drive");
+    url.searchParams.set("driveId", this.sharedDriveId);
+    url.searchParams.set("includeItemsFromAllDrives", "true");
+    url.searchParams.set("supportsAllDrives", "true");
+    url.searchParams.set("spaces", "drive");
+    url.searchParams.set("pageSize", "2");
+    url.searchParams.set("fields", LIST_FIELDS);
+    const response = await this.request(operation, url, { method: "GET" });
+    const result = await parseJson(response, operation);
+    if (!isRecord(result) || (result.files !== undefined && !Array.isArray(result.files))) {
+      throw failure(operation, response.status);
+    }
+    const files = (result.files ?? []).map((file) =>
+      validateMetadata(file, operation, response.status),
+    );
+    if (result.nextPageToken !== undefined || files.length > 1) {
+      throw failure(operation, response.status);
+    }
+    const file = files[0];
+    if (!file) return null;
+    if (!isExactParent(file.parents, parentId) || !sameAppProperties(file.appProperties, properties)) {
+      throw failure(operation, response.status);
+    }
+    return file;
   }
 
   async getFileMetadata(
@@ -571,12 +678,14 @@ export class SettlementDriveClient {
     name,
     mimeType,
     sizeBytes,
+    appProperties,
   }: ResumableUploadInput): Promise<string> {
     const operation = "startResumableUpload";
     validateDriveId(parentId, operation);
     validateRequestName(name, operation);
     validateMimeType(mimeType, operation);
     validateSize(sizeBytes, operation);
+    const normalizedProperties = normalizeAppProperties(appProperties, operation);
 
     const url = new URL("/upload/drive/v3/files", API_ORIGIN);
     url.searchParams.set("uploadType", "resumable");
@@ -589,7 +698,12 @@ export class SettlementDriveClient {
         "X-Upload-Content-Type": mimeType,
         "X-Upload-Content-Length": String(sizeBytes),
       },
-      body: JSON.stringify({ name, mimeType, parents: [parentId] }),
+      body: JSON.stringify({
+        name,
+        mimeType,
+        parents: [parentId],
+        ...(normalizedProperties ? { appProperties: normalizedProperties } : {}),
+      }),
     });
 
     const location = response.headers.get("Location");
@@ -598,6 +712,54 @@ export class SettlementDriveClient {
     } finally {
       await cancelResponseBody(response);
     }
+  }
+
+  async uploadResumableBytes(input: {
+    sessionUrl: string;
+    bytes: Uint8Array;
+    mimeType: string;
+    expectedSizeBytes: number;
+    expectedParentId: string;
+    expectedAppProperties: SettlementDriveAppProperties;
+  }): Promise<SettlementDriveFileMetadata> {
+    const operation = "uploadResumableBytes";
+    validateMimeType(input.mimeType, operation);
+    validateSize(input.expectedSizeBytes, operation);
+    validateDriveId(input.expectedParentId, operation);
+    const expectedProperties = normalizeAppProperties(input.expectedAppProperties, operation)!;
+    if (!(input.bytes instanceof Uint8Array) || input.bytes.byteLength !== input.expectedSizeBytes) {
+      throw failure(operation);
+    }
+    const url = new URL(validateSessionUrl(input.sessionUrl, operation, 0));
+    const response = await this.request(operation, url, {
+      method: "PUT",
+      headers: {
+        "Content-Type": input.mimeType,
+        "Content-Length": String(input.expectedSizeBytes),
+        "Content-Range": input.expectedSizeBytes === 0
+          ? "bytes */0"
+          : `bytes 0-${input.expectedSizeBytes - 1}/${input.expectedSizeBytes}`,
+      },
+      body: input.bytes as BodyInit,
+    });
+    if (response.status !== 200 && response.status !== 201) {
+      await cancelResponseBody(response);
+      throw failure(operation, response.status);
+    }
+    const metadata = validateMetadata(
+      await parseJson(response, operation),
+      operation,
+      response.status,
+    );
+    if (
+      metadata.size !== String(input.expectedSizeBytes)
+      || metadata.mimeType !== input.mimeType
+      || !isExactParent(metadata.parents, input.expectedParentId)
+      || !sameAppProperties(metadata.appProperties, expectedProperties)
+    ) {
+      throw failure(operation, response.status);
+    }
+    return metadata;
   }
 
   private async request(

@@ -48,6 +48,7 @@ function metadata(
     trashed: boolean;
     driveId: string;
     webViewLink: string;
+    appProperties: Record<string, string>;
   }> = {},
 ) {
   return {
@@ -193,7 +194,7 @@ async function testCreateFolder() {
   assert.equal(url.pathname, "/drive/v3/files");
   assert.deepEqual(Object.fromEntries(url.searchParams), {
     supportsAllDrives: "true",
-    fields: "id,name,mimeType,parents,driveId,webViewLink",
+    fields: "id,name,mimeType,parents,size,md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,modifiedTime,trashed,driveId,webViewLink,appProperties",
   });
   assert.deepEqual(Object.fromEntries(getHeaders(call)), {
     accept: "application/json",
@@ -270,7 +271,7 @@ async function testGetFileMetadata() {
   assert.deepEqual(Object.fromEntries(url.searchParams), {
     supportsAllDrives: "true",
     fields:
-      "id,name,mimeType,parents,size,md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,modifiedTime,trashed,driveId,webViewLink",
+      "id,name,mimeType,parents,size,md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,modifiedTime,trashed,driveId,webViewLink,appProperties",
   });
   assert.deepEqual(Object.fromEntries(getHeaders(call)), {
     accept: "application/json",
@@ -305,7 +306,7 @@ async function testListAllChildrenPagination() {
     assert.equal(url.searchParams.get("orderBy"), "name_natural");
     assert.equal(
       url.searchParams.get("fields"),
-      "nextPageToken,files(id,name,mimeType,parents,size,md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,modifiedTime,trashed,driveId,webViewLink)",
+      "nextPageToken,files(id,name,mimeType,parents,size,md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,modifiedTime,trashed,driveId,webViewLink,appProperties)",
     );
   }
   assert.equal(getUrl(mock.calls[0]).searchParams.has("pageToken"), false);
@@ -718,7 +719,7 @@ async function testStartResumableUpload() {
   assert.deepEqual(Object.fromEntries(url.searchParams), {
     uploadType: "resumable",
     supportsAllDrives: "true",
-    fields: "id,name,mimeType,parents,driveId,webViewLink",
+    fields: "id,name,mimeType,parents,size,md5Checksum,sha1Checksum,sha256Checksum,version,headRevisionId,modifiedTime,trashed,driveId,webViewLink,appProperties",
   });
   const headers = getHeaders(call);
   assert.deepEqual(Object.fromEntries(headers), {
@@ -869,6 +870,224 @@ async function testValidationDoesNotFetch() {
   }
 }
 
+async function testBackupIdentityAndUploadPrimitives() {
+  const appProperties = {
+    backup_identity: "source_file:version-1:object-1",
+    content_sha256: "a".repeat(64),
+  };
+  const found = metadata({
+    id: "existing_file",
+    parents: ["backup_root"],
+    size: "3",
+    sha256Checksum: "a".repeat(64),
+    appProperties,
+  });
+  const sessionUrl =
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=backup-session";
+  const uploaded = metadata({
+    id: "uploaded_file",
+    parents: ["backup_root"],
+    size: "3",
+    sha256Checksum: "a".repeat(64),
+    appProperties,
+  });
+  const mock = createMockFetch([
+    jsonResponse({ files: [found] }),
+    new Response(null, { status: 200, headers: { Location: sessionUrl } }),
+    jsonResponse(uploaded, { status: 201 }),
+  ]);
+  const client = new SettlementDriveClient(config, async () => TOKEN, mock.fetchImpl);
+
+  const reconciled = await client.findUniqueByAppProperties("backup_root", appProperties);
+  assert.equal(reconciled?.id, "existing_file");
+  assert.deepEqual({ ...reconciled?.appProperties }, appProperties);
+  const query = getUrl(mock.calls[0]).searchParams.get("q") ?? "";
+  assert.equal(
+    query,
+    "'backup_root' in parents and trashed = false and appProperties has { key='backup_identity' and value='source_file:version-1:object-1' } and appProperties has { key='content_sha256' and value='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }",
+  );
+  assert.equal(getUrl(mock.calls[0]).searchParams.get("pageSize"), "2");
+
+  const issued = await client.startResumableUpload({
+    parentId: "backup_root",
+    name: "source.bin",
+    mimeType: "application/octet-stream",
+    sizeBytes: 3,
+    appProperties,
+  });
+  assert.equal(issued, sessionUrl);
+  assert.deepEqual(JSON.parse(String(mock.calls[1].init?.body)).appProperties, appProperties);
+
+  assert.deepEqual(
+    await client.uploadResumableBytes({
+      sessionUrl: issued,
+      bytes: Buffer.from("abc"),
+      mimeType: "application/octet-stream",
+      expectedSizeBytes: 3,
+      expectedParentId: "backup_root",
+      expectedAppProperties: appProperties,
+    }),
+    uploaded,
+  );
+  const uploadHeaders = getHeaders(mock.calls[2]);
+  assert.equal(mock.calls[2].init?.method, "PUT");
+  assert.equal(uploadHeaders.get("content-length"), "3");
+  assert.equal(uploadHeaders.get("content-range"), "bytes 0-2/3");
+  assert.equal(Buffer.from(mock.calls[2].init?.body as Uint8Array).toString(), "abc");
+
+  const reconciliationCases: Array<{
+    body: { files: ReturnType<typeof metadata>[]; nextPageToken?: string };
+    expectNull: boolean;
+  }> = [
+    { body: { files: [] }, expectNull: true },
+    { body: { files: [found, metadata({ id: "duplicate" })] }, expectNull: false },
+    { body: { files: [found], nextPageToken: "more" }, expectNull: false },
+  ];
+  for (const testCase of reconciliationCases) {
+    const one = createMockFetch([jsonResponse(testCase.body)]);
+    const candidate = new SettlementDriveClient(config, async () => TOKEN, one.fetchImpl);
+    if (testCase.expectNull) {
+      assert.equal(await candidate.findUniqueByAppProperties("backup_root", appProperties), null);
+    } else {
+      const error = await getAsyncError(() =>
+        candidate.findUniqueByAppProperties("backup_root", appProperties),
+      );
+      assertSafeError(error, "findUniqueByAppProperties", 200, []);
+    }
+  }
+
+  const invalidProperties: Array<Record<string, string>> = [
+    { bad: "quote'value" },
+    { bad: "slash/value" },
+    { "bad-key": "value" },
+    {},
+  ];
+  for (const invalid of invalidProperties) {
+    const noFetch = createMockFetch([]);
+    const candidate = new SettlementDriveClient(config, async () => TOKEN, noFetch.fetchImpl);
+    await getAsyncError(() => candidate.findUniqueByAppProperties("backup_root", invalid));
+    assert.equal(noFetch.calls.length, 0);
+  }
+
+  const invalidRuntimeProperties: unknown[] = [
+    { bad: 123 },
+    { bad: { toString() { throw new Error("secret-toString"); } } },
+  ];
+  for (const invalid of invalidRuntimeProperties) {
+    const noFetch = createMockFetch([]);
+    const candidate = new SettlementDriveClient(config, async () => TOKEN, noFetch.fetchImpl);
+    const error = await getAsyncError(() =>
+      candidate.findUniqueByAppProperties(
+        "backup_root",
+        invalid as Record<string, string>,
+      ),
+    );
+    assertSafeError(error, "findUniqueByAppProperties", undefined, ["secret-toString"]);
+    assert.equal(noFetch.calls.length, 0);
+  }
+
+  for (const mismatched of [
+    metadata({ id: "wrong-parent", parents: ["other"], appProperties }),
+    metadata({ id: "missing-properties", parents: ["backup_root"] }),
+    metadata({
+      id: "extra-properties",
+      parents: ["backup_root"],
+      appProperties: { ...appProperties, extra: "value" },
+    }),
+  ]) {
+    const one = createMockFetch([jsonResponse({ files: [mismatched] })]);
+    const candidate = new SettlementDriveClient(config, async () => TOKEN, one.fetchImpl);
+    await getAsyncError(() =>
+      candidate.findUniqueByAppProperties("backup_root", appProperties),
+    );
+  }
+
+  const wrongLength = createMockFetch([]);
+  const candidate = new SettlementDriveClient(config, async () => TOKEN, wrongLength.fetchImpl);
+  await getAsyncError(() => candidate.uploadResumableBytes({
+    sessionUrl,
+    bytes: Buffer.from("ab"),
+    mimeType: "application/octet-stream",
+    expectedSizeBytes: 3,
+    expectedParentId: "backup_root",
+    expectedAppProperties: appProperties,
+  }));
+  assert.equal(wrongLength.calls.length, 0);
+
+  const incomplete = createMockFetch([
+    new Response(null, { status: 308, headers: { Range: "bytes=0-1" } }),
+  ]);
+  const incompleteClient = new SettlementDriveClient(
+    config,
+    async () => TOKEN,
+    incomplete.fetchImpl,
+  );
+  const incompleteError = await getAsyncError(() =>
+    incompleteClient.uploadResumableBytes({
+      sessionUrl,
+      bytes: Buffer.from("abc"),
+      mimeType: "application/octet-stream",
+      expectedSizeBytes: 3,
+      expectedParentId: "backup_root",
+      expectedAppProperties: appProperties,
+    }),
+  );
+  assertSafeError(incompleteError, "uploadResumableBytes", 308, [sessionUrl]);
+
+  const unsafeSession = createMockFetch([]);
+  const unsafeClient = new SettlementDriveClient(config, async () => TOKEN, unsafeSession.fetchImpl);
+  const unsafeError = await getAsyncError(() => unsafeClient.uploadResumableBytes({
+    sessionUrl: "https://evil.example/upload/drive/v3/files?uploadType=resumable&upload_id=secret",
+    bytes: Buffer.from("abc"),
+    mimeType: "application/octet-stream",
+    expectedSizeBytes: 3,
+    expectedParentId: "backup_root",
+    expectedAppProperties: appProperties,
+  }));
+  assertSafeError(unsafeError, "uploadResumableBytes", 0, ["evil.example", "secret"]);
+  assert.equal(unsafeSession.calls.length, 0);
+
+  const metadataMismatches = [
+    metadata({ ...uploaded, size: "4" }),
+    metadata({ ...uploaded, mimeType: "text/plain" }),
+    metadata({ ...uploaded, parents: ["other"] }),
+    metadata({ ...uploaded, appProperties: { ...appProperties, extra: "value" } }),
+  ];
+  for (const mismatched of metadataMismatches) {
+    const one = createMockFetch([jsonResponse(mismatched, { status: 201 })]);
+    const candidate = new SettlementDriveClient(config, async () => TOKEN, one.fetchImpl);
+    await getAsyncError(() => candidate.uploadResumableBytes({
+      sessionUrl,
+      bytes: Buffer.from("abc"),
+      mimeType: "application/octet-stream",
+      expectedSizeBytes: 3,
+      expectedParentId: "backup_root",
+      expectedAppProperties: appProperties,
+    }));
+  }
+
+  const zeroMetadata = metadata({
+    id: "empty_file",
+    parents: ["backup_root"],
+    size: "0",
+    appProperties,
+  });
+  const zero = createMockFetch([jsonResponse(zeroMetadata, { status: 201 })]);
+  const zeroClient = new SettlementDriveClient(config, async () => TOKEN, zero.fetchImpl);
+  assert.deepEqual(await zeroClient.uploadResumableBytes({
+    sessionUrl,
+    bytes: Buffer.alloc(0),
+    mimeType: "application/octet-stream",
+    expectedSizeBytes: 0,
+    expectedParentId: "backup_root",
+    expectedAppProperties: appProperties,
+  }), zeroMetadata);
+  assert.equal(zero.calls.length, 1);
+  const zeroHeaders = getHeaders(zero.calls[0]);
+  assert.equal(zeroHeaders.get("content-length"), "0");
+  assert.equal(zeroHeaders.get("content-range"), "bytes */0");
+}
+
 async function main() {
   await testCreateFolder();
   await testUnicodeNamesArePreserved();
@@ -888,6 +1107,7 @@ async function main() {
   await testLocationFailuresArePrivacySafe();
   await testTokenProviderFailureIsPrivacySafe();
   await testValidationDoesNotFetch();
+  await testBackupIdentityAndUploadPrimitives();
   console.log("test-settlement-drive-client: all assertions passed");
 }
 
