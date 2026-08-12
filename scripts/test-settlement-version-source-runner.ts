@@ -4,6 +4,7 @@ import type { SettlementProcessingRunRow } from "../src/features/settlement/lib/
 import {
   claimSettlementVersionRun,
   createPostgresVersionRunLifecycle,
+  runClaimedVersionProcessing,
   runClaimedVersionSnapshot,
 } from "../src/features/settlement/lib/worker/version-source-runner";
 import { VersionSourceSnapshotError } from "../src/features/settlement/lib/worker/version-source-snapshot";
@@ -24,6 +25,23 @@ const RUN: SettlementProcessingRunRow = {
   snapshot_file_count: null,
   snapshot_total_bytes: null,
   snapshot_ready_at: null,
+  stage_sha256: null,
+  stage_size_bytes: null,
+  stage_file_count: null,
+  stage_raw_row_count: null,
+  stage_sales_row_count: null,
+  stage_ready_at: null,
+  workbook_sha256: null,
+  workbook_archive_sha256: null,
+  workbook_size_bytes: null,
+  workbook_sheet_count: null,
+  workbook_row_count: null,
+  office_verifier: null,
+  office_version: null,
+  office_archive_sha256: null,
+  office_sheet_count: null,
+  office_row_count: null,
+  workbook_ready_at: null,
   error_summary: null,
   claimed_at: "2026-08-12T00:00:00Z",
   terminal_at: null,
@@ -43,6 +61,16 @@ const READY = {
   totalBytes: 5,
   reused: false,
   snapshotReady: true as const,
+  settlementMonth: "2026-07-01",
+  entries: [{
+    objectId: "33333333-4444-4555-8666-777777777777",
+    position: 0,
+    pathKey: "source.csv",
+    displayPath: "source.csv",
+    sizeBytes: 5,
+    sha256: "b".repeat(64),
+    storagePath: `intake/202607/${"a".repeat(32)}/${"b".repeat(32)}`,
+  }],
 };
 
 async function testClaimAndLifecycleSql(): Promise<void> {
@@ -107,6 +135,50 @@ async function testRunnerOutcomes(): Promise<void> {
   assert.equal(invalid.outcome, "lease_lost");
 }
 
+async function testProcessingRunnerOutcomes(): Promise<void> {
+  const events: string[] = [];
+  const base = {
+    materialize: async () => { events.push("snapshot"); return READY; },
+    processArtifacts: async (input: { snapshot: typeof READY; identity: { claimToken: string } }) => {
+      events.push("artifacts");
+      assert.equal(input.snapshot.settlementMonth, READY.settlementMonth);
+      assert.equal(input.identity.claimToken, RUN.claim_token);
+      return { outcome: "workbook_ready", stage: {}, workbook: {} };
+    },
+    fail: async (input: { errorSummary: string }) => { events.push(`fail:${input.errorSummary}`); return true; },
+    release: async () => { events.push("release"); return true; },
+  };
+  const success = await runClaimedVersionProcessing(RUN, INPUT, base as never);
+  assert.equal(success.outcome, "workbook_ready");
+  assert.deepEqual(events, ["snapshot", "artifacts"]);
+
+  const interruptedEvents: string[] = [];
+  let stopChecks = 0;
+  const interrupted = await runClaimedVersionProcessing(RUN, INPUT, {
+    ...base,
+    materialize: async () => { interruptedEvents.push("snapshot"); return READY; },
+    shouldStop: () => { stopChecks += 1; return stopChecks >= 2; },
+    processArtifacts: async () => { interruptedEvents.push("artifacts"); return { outcome: "lease_lost" }; },
+    release: async () => { interruptedEvents.push("release"); return true; },
+  } as never);
+  assert.equal(interrupted.outcome, "interrupted");
+  assert.deepEqual(interruptedEvents, ["snapshot", "release"]);
+
+  events.length = 0;
+  const stale = await runClaimedVersionProcessing(RUN, INPUT, {
+    ...base, processArtifacts: async () => ({ outcome: "lease_lost" }),
+  } as never);
+  assert.equal(stale.outcome, "lease_lost");
+  assert.deepEqual(events, ["snapshot"]);
+
+  events.length = 0;
+  const failed = await runClaimedVersionProcessing(RUN, INPUT, {
+    ...base, processArtifacts: async () => { throw new Error("secret row content"); },
+  } as never);
+  assert.equal(failed.outcome, "failed");
+  assert.deepEqual(events, ["snapshot", "fail:local artifact failed"]);
+}
+
 function expectIdentity(input: { jobId: string; runId: string; sourceVersionId: string; workerId: string; claimToken: string }) {
   return {
     ...input,
@@ -121,6 +193,7 @@ function expectIdentity(input: { jobId: string; runId: string; sourceVersionId: 
 async function main(): Promise<void> {
   await testClaimAndLifecycleSql();
   await testRunnerOutcomes();
+  await testProcessingRunnerOutcomes();
   console.log("test-settlement-version-source-runner: all assertions passed");
 }
 void main();

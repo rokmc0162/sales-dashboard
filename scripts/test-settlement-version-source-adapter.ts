@@ -43,6 +43,7 @@ function fileRow(position: number, bytes = Buffer.from(`row-${position}`)): Froz
 function versionFor(rows: FrozenVersionFileRow[], manifest = "a".repeat(64)): FrozenVersionRow {
   return {
     id: VERSION_ID,
+    settlement_month: "2026-07-01",
     file_count: rows.length,
     total_size_bytes: rows.reduce((sum, row) => sum + Number(row.size_bytes), 0),
     manifest_sha256: manifest,
@@ -222,6 +223,16 @@ async function testFencedOrchestration(): Promise<void> {
     },
   });
   assert.equal(result.snapshotReady, true);
+  assert.equal(result.settlementMonth, "2026-07-01");
+  assert.deepEqual(result.entries, rows.map((row) => ({
+    objectId: row.object_id,
+    position: Number(row.position),
+    pathKey: row.path_key,
+    displayPath: row.display_name,
+    sizeBytes: Number(row.size_bytes),
+    sha256: row.sha256,
+    storagePath: row.storage_path,
+  })));
   assert.deepEqual(events, ["heartbeat", "materialize", "heartbeat", "ready"]);
 
   let loaded = false;
@@ -283,7 +294,8 @@ async function testPostgresWrappers(): Promise<void> {
     totalBytes: Number(row.size_bytes),
   }), true);
 
-  assert.match(calls[0].text, /select id, file_count, total_size_bytes, manifest_sha256/);
+  assert.match(calls[0].text, /select v\.id, m\.month::text as settlement_month/);
+  assert.match(calls[0].text, /join public\.settlement_intake_months m on m\.id = v\.intake_id/);
   assert.match(calls[0].text, /settlement_intake_versions/);
   assert.deepEqual(calls[0].values, [VERSION_ID]);
   assert.match(calls[1].text, /select object_id, position, path_key, display_name, size_bytes, sha256, storage_path/);

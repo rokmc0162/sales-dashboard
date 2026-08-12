@@ -5,6 +5,9 @@ import postgres from "postgres";
 
 import type { Database } from "../src/features/settlement/lib/supabase/types";
 import { fillInputV2Template } from "../src/features/settlement/lib/export/input-v2-filler";
+import { buildLocalParseStage } from "../src/features/settlement/lib/worker/local-parse-stage";
+import { persistLocalParseStage } from "../src/features/settlement/lib/worker/local-stage-store";
+import { generateLocalWorkbookArtifact } from "../src/features/settlement/lib/worker/local-workbook-artifact";
 import { loadInputV2Records } from "../src/features/settlement/lib/export/load-input-v2-records";
 import {
   createSupabasePreparedUploadStore,
@@ -24,8 +27,12 @@ import {
 import {
   claimSettlementVersionRun,
   createPostgresVersionRunLifecycle,
-  runClaimedVersionSnapshot,
+  runClaimedVersionProcessing,
 } from "../src/features/settlement/lib/worker/version-source-runner";
+import {
+  createPostgresProcessingArtifactFence,
+  processSnapshotArtifacts,
+} from "../src/features/settlement/lib/worker/version-processing-artifacts";
 import { runSettlementWorkerCycle } from "../src/features/settlement/lib/worker/worker-cycle";
 import { requireWorkerEnvironment } from "../src/features/settlement/lib/worker/worker-env";
 
@@ -119,16 +126,22 @@ async function main() {
     const versionStore = createPostgresVersionSourceStore(sql);
     const versionFence = createPostgresVersionSourceFence(sql);
     const versionLifecycle = createPostgresVersionRunLifecycle(sql);
+    const artifactFence = createPostgresProcessingArtifactFence(sql);
+    const [{ parseFile: versionParseFile }, { toSalesRecords: versionToSalesRecords, buildLookupMaps: versionBuildLookupMaps }, { xlsxArchiveDigest }] = await Promise.all([
+      import("../src/features/settlement/lib/parsers/index"),
+      import("../src/features/settlement/lib/aggregation/to-sales-records"),
+      import("../src/features/settlement/lib/worker/run-job"),
+    ]);
 
     console.log(`[settlement-worker] started mode=${once ? "once" : "loop"}`);
     do {
       if (stopping) break;
       const cycle = await runSettlementWorkerCycle({
-        // Snapshot-only version processing is deliberately one-shot until the
-        // parser staging pipeline (impl-6) can continue a snapshot-ready run.
+        // Version processing remains deliberately one-shot until Drive backup
+        // and publication can continue a workbook-ready run safely.
         versionEnabled: once && env.versionWorkRoot !== null,
         claimVersion: () => claimSettlementVersionRun(sql, id, leaseSeconds),
-        runVersion: (run) => runClaimedVersionSnapshot(run, {
+        runVersion: (run) => runClaimedVersionProcessing(run, {
           workRoot: env.versionWorkRoot as string,
           leaseSeconds,
           supabaseUrl: env.supabaseUrl,
@@ -139,6 +152,18 @@ async function main() {
           materialize: (input) => materializeClaimedVersionSnapshot(input, {
             store: versionStore,
             fence: versionFence,
+          }),
+          processArtifacts: (input) => processSnapshotArtifacts(input, {
+            fence: artifactFence,
+            loadLookups: async () => versionBuildLookupMaps(await preparedStore.loadLookupRows()),
+            parseFile: versionParseFile,
+            toSalesRecords: versionToSalesRecords,
+            buildStage: buildLocalParseStage,
+            persistStage: persistLocalParseStage,
+            generateWorkbook: generateLocalWorkbookArtifact,
+            fillWorkbook: fillInputV2Template,
+            validateWorkbook: validateSettlementWorkbook,
+            archiveDigest: xlsxArchiveDigest,
           }),
         }),
         claimLegacy: () => claimSettlementJob(sql, id, leaseSeconds),

@@ -20,6 +20,7 @@ type Sql = postgres.Sql;
 
 export type FrozenVersionRow = {
   id: string;
+  settlement_month: string;
   file_count: number | string;
   total_size_bytes: number | string;
   manifest_sha256: string;
@@ -74,7 +75,11 @@ export interface VersionSourceAdapterDependencies {
   ) => Promise<VersionSourceSnapshotResult>;
 }
 
-export type SnapshotReadyResult = VersionSourceSnapshotResult & { snapshotReady: true };
+export type SnapshotReadyResult = VersionSourceSnapshotResult & {
+  snapshotReady: true;
+  settlementMonth: string;
+  entries: VersionSourceManifestEntry[];
+};
 
 function fail(code: "INVALID_INPUT" | "INVALID_MANIFEST" | "SOURCE_MISMATCH" | "STALE_RUN", message: string): never {
   throw new VersionSourceSnapshotError(code, message);
@@ -162,6 +167,9 @@ export async function loadFrozenVersionManifest(
   requireUuid(versionId, "source version id");
   const version = await store.getVersion(versionId);
   if (!version || version.id !== versionId) fail("INVALID_MANIFEST", "unknown source version");
+  if (!/^\d{4}-(0[1-9]|1[0-2])-01$/.test(version.settlement_month)) {
+    fail("INVALID_MANIFEST", "invalid frozen settlement month");
+  }
   const fileCount = databaseInteger(version.file_count, "frozen file count");
   const totalSize = databaseInteger(version.total_size_bytes, "frozen total size");
   if (fileCount < 1 || fileCount > 200) {
@@ -256,7 +264,12 @@ export async function materializeClaimedVersionSnapshot(
     totalBytes: result.totalBytes,
   });
   if (!ready) fail("STALE_RUN", "claim fence rejected snapshot-ready evidence");
-  return { ...result, snapshotReady: true };
+  return {
+    ...result,
+    snapshotReady: true,
+    settlementMonth: version.settlement_month,
+    entries: entries.map((entry) => ({ ...entry })),
+  };
 }
 
 export function createPostgresVersionSourceFence(sql: Sql): VersionSourceFence {
@@ -294,9 +307,11 @@ export function createPostgresVersionSourceStore(sql: Sql): VersionSourceStore {
   return {
     async getVersion(versionId) {
       const rows = await sql<FrozenVersionRow[]>`
-        select id, file_count, total_size_bytes, manifest_sha256
-        from public.settlement_intake_versions
-        where id = ${versionId}::uuid
+        select v.id, m.month::text as settlement_month,
+               v.file_count, v.total_size_bytes, v.manifest_sha256
+        from public.settlement_intake_versions v
+        join public.settlement_intake_months m on m.id = v.intake_id
+        where v.id = ${versionId}::uuid
         limit 1
       `;
       return rows[0] ?? null;

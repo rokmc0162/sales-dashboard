@@ -30,6 +30,7 @@
     "test:settlement-version-source-adapter": "node --import tsx scripts/test-settlement-version-source-adapter.ts",
     "test:settlement-local-parse-stage": "node --import tsx scripts/test-settlement-local-parse-stage.ts && node --import tsx scripts/test-settlement-local-stage-store.ts",
     "test:settlement-local-workbook-artifact": "node --import tsx scripts/test-settlement-local-workbook-artifact.ts",
+    "test:settlement-processing-artifacts": "node --import tsx scripts/test-settlement-processing-artifacts.ts",
     "test:settlement-archive-download": "node --import tsx scripts/test-archive-download.ts",
     "test:settlement-intake": "node --import tsx scripts/test-settlement-intake-version-contract.ts && node --import tsx scripts/test-settlement-intake-schema.ts && npm run test:settlement-intake-api && npm run test:settlement-intake-ui",
     "test:settlement-intake-api": "node --import tsx scripts/test-settlement-intake-api.ts",

@@ -9,11 +9,18 @@ import type {
   MaterializeClaimedVersionInput,
   SnapshotReadyResult,
 } from "./version-source-adapter";
+import type {
+  ProcessingArtifactOutcome,
+} from "./version-processing-artifacts";
 
 type Sql = postgres.Sql;
 
 export type VersionSnapshotRunOutcome =
   | { outcome: "snapshot_ready"; result: SnapshotReadyResult }
+  | { outcome: "failed" | "lease_lost" | "interrupted"; result?: never };
+
+export type VersionProcessingRunOutcome =
+  | { outcome: "workbook_ready"; result: Extract<ProcessingArtifactOutcome, { outcome: "workbook_ready" }> }
   | { outcome: "failed" | "lease_lost" | "interrupted"; result?: never };
 
 export interface VersionSnapshotRunDependencies {
@@ -32,6 +39,17 @@ export interface VersionSnapshotRunDependencies {
     claimToken: string;
   }): Promise<boolean>;
   shouldStop?: () => boolean;
+}
+
+export interface VersionProcessingRunDependencies extends VersionSnapshotRunDependencies {
+  processArtifacts(input: {
+    identity: {
+      jobId: string; runId: string; sourceVersionId: string; workerId: string; claimToken: string;
+    };
+    snapshot: SnapshotReadyResult;
+    workRoot: string;
+    leaseSeconds: number;
+  }): Promise<ProcessingArtifactOutcome>;
 }
 
 export async function claimSettlementVersionRun(
@@ -96,6 +114,44 @@ export async function runClaimedVersionSnapshot(
       failed = false;
     }
     return { outcome: failed ? "failed" : "lease_lost" };
+  }
+}
+
+export async function runClaimedVersionProcessing(
+  run: SettlementProcessingRunRow,
+  input: Pick<MaterializeClaimedVersionInput,
+    "workRoot" | "leaseSeconds" | "supabaseUrl" | "serviceRoleKey" | "storageTimeoutMs"
+  >,
+  deps: VersionProcessingRunDependencies,
+): Promise<VersionProcessingRunOutcome> {
+  const snapshot = await runClaimedVersionSnapshot(run, input, deps);
+  if (snapshot.outcome !== "snapshot_ready") return snapshot;
+  const identity = {
+    jobId: run.job_id,
+    runId: run.id,
+    sourceVersionId: run.source_version_id,
+    workerId: run.worker_id,
+    claimToken: run.claim_token,
+  };
+  if (deps.shouldStop?.()) {
+    try {
+      return await deps.release(identity) ? { outcome: "interrupted" } : { outcome: "lease_lost" };
+    } catch { return { outcome: "lease_lost" }; }
+  }
+  try {
+    const artifacts = await deps.processArtifacts({
+      identity,
+      snapshot: snapshot.result,
+      workRoot: input.workRoot,
+      leaseSeconds: input.leaseSeconds,
+    });
+    if (artifacts.outcome === "lease_lost") return { outcome: "lease_lost" };
+    return { outcome: "workbook_ready", result: artifacts };
+  } catch {
+    try {
+      const failed = await deps.fail({ ...identity, errorSummary: "local artifact failed" });
+      return { outcome: failed ? "failed" : "lease_lost" };
+    } catch { return { outcome: "lease_lost" }; }
   }
 }
 
