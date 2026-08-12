@@ -42,6 +42,7 @@ function main() {
     assert.equal(env.serviceRoleKey, `key-via-${name}`);
     assert.equal(env.supabaseUrl, base.NEXT_PUBLIC_SUPABASE_URL);
     assert.equal(env.databaseUrl, base.SUPABASE_DATABASE_URL);
+    assert.equal(env.versionWorkRoot, null);
   }
 
   // The project-scoped alias wins over the compatibility fallbacks, and the
@@ -54,6 +55,29 @@ function main() {
     SUPABASE_SERVICE_ROLE_KEY: "legacy-key",
   });
   assert.equal(resolved.serviceRoleKey, "primary-key");
+
+  const versionEnabled = requireWorkerEnvironment({
+    ...base,
+    RVJP_DB_ADMIN_TOKEN: "primary-key",
+    SETTLEMENT_VERSION_WORK_ROOT: "/Volumes/SSD_MacMini_2/Riverse/settlement-worker",
+  });
+  assert.equal(versionEnabled.versionWorkRoot, "/Volumes/SSD_MacMini_2/Riverse/settlement-worker");
+  assert.throws(
+    () => requireWorkerEnvironment({
+      ...base,
+      RVJP_DB_ADMIN_TOKEN: "primary-key",
+      SETTLEMENT_VERSION_WORK_ROOT: "/Users/macmini/settlement-worker",
+    }),
+    /must be a dedicated directory under SSD2/,
+  );
+  assert.throws(
+    () => requireWorkerEnvironment({
+      ...base,
+      RVJP_DB_ADMIN_TOKEN: "primary-key",
+      SETTLEMENT_VERSION_WORK_ROOT: "/Volumes/SSD_MacMini_2",
+    }),
+    /must be a dedicated directory under SSD2/,
+  );
 
   console.log("test-settlement-worker-env: all assertions passed");
 }

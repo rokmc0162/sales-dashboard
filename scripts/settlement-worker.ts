@@ -16,6 +16,17 @@ import {
   runSettlementJob,
   validateSettlementWorkbook,
 } from "../src/features/settlement/lib/worker/run-job";
+import {
+  createPostgresVersionSourceFence,
+  createPostgresVersionSourceStore,
+  materializeClaimedVersionSnapshot,
+} from "../src/features/settlement/lib/worker/version-source-adapter";
+import {
+  claimSettlementVersionRun,
+  createPostgresVersionRunLifecycle,
+  runClaimedVersionSnapshot,
+} from "../src/features/settlement/lib/worker/version-source-runner";
+import { runSettlementWorkerCycle } from "../src/features/settlement/lib/worker/worker-cycle";
 import { requireWorkerEnvironment } from "../src/features/settlement/lib/worker/worker-env";
 
 const MIN_POLL_MS = 1_000;
@@ -79,16 +90,61 @@ async function main() {
     });
     const workerStore = createPostgresSettlementWorkerStore(sql, supabase);
     const preparedStore = createSupabasePreparedUploadStore(supabase);
-    const [{ parseFile }, { toSalesRecords, buildLookupMaps }] = await Promise.all([
-      import("../src/features/settlement/lib/parsers/index"),
-      import("../src/features/settlement/lib/aggregation/to-sales-records"),
-    ]);
+    let legacyRunner: ((job: Awaited<ReturnType<typeof claimSettlementJob>> & object) => ReturnType<typeof runSettlementJob>) | null = null;
+    const runLegacy = async (job: NonNullable<Awaited<ReturnType<typeof claimSettlementJob>>>) => {
+      if (!legacyRunner) {
+        const [{ parseFile }, { toSalesRecords, buildLookupMaps }] = await Promise.all([
+          import("../src/features/settlement/lib/parsers/index"),
+          import("../src/features/settlement/lib/aggregation/to-sales-records"),
+        ]);
+        legacyRunner = (claimedJob) => runSettlementJob(claimedJob, id, leaseSeconds, {
+          store: workerStore,
+          shouldStop: () => stopping,
+          processUpload: (input) => processPreparedUpload(input, {
+            store: preparedStore,
+            parseFile,
+            toSalesRecords,
+            buildLookupMaps,
+          }),
+          loadRecords: (month) => loadInputV2Records(month, {
+            supabase,
+            allowIncompleteSources: true,
+          }),
+          fillWorkbook: fillInputV2Template,
+          validateWorkbook: validateSettlementWorkbook,
+        });
+      }
+      return legacyRunner(job);
+    };
+    const versionStore = createPostgresVersionSourceStore(sql);
+    const versionFence = createPostgresVersionSourceFence(sql);
+    const versionLifecycle = createPostgresVersionRunLifecycle(sql);
 
     console.log(`[settlement-worker] started mode=${once ? "once" : "loop"}`);
     do {
       if (stopping) break;
-      const job = await claimSettlementJob(sql, id, leaseSeconds);
-      if (!job) {
+      const cycle = await runSettlementWorkerCycle({
+        // Snapshot-only version processing is deliberately one-shot until the
+        // parser staging pipeline (impl-6) can continue a snapshot-ready run.
+        versionEnabled: once && env.versionWorkRoot !== null,
+        claimVersion: () => claimSettlementVersionRun(sql, id, leaseSeconds),
+        runVersion: (run) => runClaimedVersionSnapshot(run, {
+          workRoot: env.versionWorkRoot as string,
+          leaseSeconds,
+          supabaseUrl: env.supabaseUrl,
+          serviceRoleKey: env.serviceRoleKey,
+        }, {
+          ...versionLifecycle,
+          shouldStop: () => stopping,
+          materialize: (input) => materializeClaimedVersionSnapshot(input, {
+            store: versionStore,
+            fence: versionFence,
+          }),
+        }),
+        claimLegacy: () => claimSettlementJob(sql, id, leaseSeconds),
+        runLegacy,
+      });
+      if (cycle.kind === "idle") {
         if (once) break;
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, pollMs);
@@ -100,30 +156,7 @@ async function main() {
         wakePoll = null;
         continue;
       }
-
-      const result = await runSettlementJob(job, id, leaseSeconds, {
-        store: workerStore,
-        shouldStop: () => stopping,
-        processUpload: (input) => processPreparedUpload(input, {
-          store: preparedStore,
-          parseFile,
-          toSalesRecords,
-          buildLookupMaps,
-        }),
-        loadRecords: (month) => loadInputV2Records(month, {
-          supabase,
-          // The Mac worker produces a review candidate even when a required
-          // source family is missing. loadInputV2Records preserves those gaps
-          // as sourceWarnings, so the job finishes with warnings rather than
-          // presenting the workbook as a clean result.
-          allowIncompleteSources: true,
-        }),
-        fillWorkbook: fillInputV2Template,
-        validateWorkbook: validateSettlementWorkbook,
-      });
-      console.log(
-        `[settlement-worker] job=${job.id} outcome=${result.outcome} files=${result.filesProcessed} failures=${result.filesFailed}`,
-      );
+      console.log(`[settlement-worker] contract=${cycle.kind} outcome=${cycle.outcome}`);
       if (once) break;
     } while (!stopping);
     console.log("[settlement-worker] stopped");
