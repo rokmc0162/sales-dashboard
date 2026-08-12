@@ -25,6 +25,7 @@
     "test:settlement-version-queue-sql": "psql \"$SUPABASE_DATABASE_URL\" -v ON_ERROR_STOP=1 -f scripts/sql/test-030-settlement-version-job-queue.sql",
     "test:settlement-processing-runs": "node --import tsx scripts/test-settlement-processing-runs.ts",
     "test:settlement-processing-runs-sql": "psql \"$SUPABASE_DATABASE_URL\" -v ON_ERROR_STOP=1 -f scripts/sql/test-031-settlement-processing-runs.sql",
+    "test:settlement-version-source-snapshot": "node --import tsx scripts/test-settlement-version-source-snapshot.ts",
     "test:settlement-archive-download": "node --import tsx scripts/test-archive-download.ts",
     "test:settlement-intake": "node --import tsx scripts/test-settlement-intake-version-contract.ts && node --import tsx scripts/test-settlement-intake-schema.ts && npm run test:settlement-intake-api && npm run test:settlement-intake-ui",
     "test:settlement-intake-api": "node --import tsx scripts/test-settlement-intake-api.ts",
