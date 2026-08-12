@@ -1066,6 +1066,46 @@ async function testBackupIdentityAndUploadPrimitives() {
     }));
   }
 
+  const chunkTotal = 256 * 1024 + 1;
+  const chunkMetadata = metadata({
+    id: "chunked_file", parents: ["backup_root"], size: String(chunkTotal), appProperties,
+  });
+  const chunked = createMockFetch([
+    new Response(null, { status: 308, headers: { Range: `bytes=0-${256 * 1024 - 1}` } }),
+    jsonResponse(chunkMetadata, { status: 201 }),
+  ]);
+  const chunkClient = new SettlementDriveClient(config, async () => TOKEN, chunked.fetchImpl);
+  assert.deepEqual(await chunkClient.uploadResumableChunk({
+    sessionUrl, bytes: Buffer.alloc(256 * 1024), offsetBytes: 0, totalSizeBytes: chunkTotal,
+    mimeType: "application/octet-stream", expectedParentId: "backup_root", expectedAppProperties: appProperties,
+  }), { complete: false, nextOffsetBytes: 256 * 1024 });
+  assert.deepEqual(await chunkClient.uploadResumableChunk({
+    sessionUrl, bytes: Buffer.from("x"), offsetBytes: 256 * 1024, totalSizeBytes: chunkTotal,
+    mimeType: "application/octet-stream", expectedParentId: "backup_root", expectedAppProperties: appProperties,
+  }), { complete: true, metadata: chunkMetadata });
+  assert.equal(getHeaders(chunked.calls[0]).get("content-range"), `bytes 0-${256 * 1024 - 1}/${chunkTotal}`);
+  assert.equal(getHeaders(chunked.calls[1]).get("content-range"), `bytes ${256 * 1024}-${256 * 1024}/${chunkTotal}`);
+
+  for (const response of [
+    new Response(null, { status: 308, headers: { Range: "bytes=0-1" } }),
+    jsonResponse(chunkMetadata, { status: 200 }),
+  ]) {
+    const badChunk = createMockFetch([response]);
+    const badClient = new SettlementDriveClient(config, async () => TOKEN, badChunk.fetchImpl);
+    const error = await getAsyncError(() => badClient.uploadResumableChunk({
+      sessionUrl, bytes: Buffer.alloc(256 * 1024), offsetBytes: 0, totalSizeBytes: chunkTotal,
+      mimeType: "application/octet-stream", expectedParentId: "backup_root", expectedAppProperties: appProperties,
+    }));
+    assertSafeError(error, "uploadResumableChunk", response.status, [sessionUrl]);
+  }
+  const unaligned = createMockFetch([]);
+  const unalignedClient = new SettlementDriveClient(config, async () => TOKEN, unaligned.fetchImpl);
+  await getAsyncError(() => unalignedClient.uploadResumableChunk({
+    sessionUrl, bytes: Buffer.alloc(1), offsetBytes: 0, totalSizeBytes: 2,
+    mimeType: "application/octet-stream", expectedParentId: "backup_root", expectedAppProperties: appProperties,
+  }));
+  assert.equal(unaligned.calls.length, 0);
+
   const zeroMetadata = metadata({
     id: "empty_file",
     parents: ["backup_root"],
