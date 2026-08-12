@@ -117,10 +117,22 @@ async function main() {
     const large = Buffer.alloc(8 * 1024 * 1024 + 123, 0x5a);
     const largeArtifact = await localArtifact(large, "large.xlsx"); const largeRow = rowFor(large);
     const largeStore = store(largeRow); const largeDrive = new FakeDrive(largeRow);
+    let chunkHeartbeats = 0;
     const uploaded = await backupDriveArtifact({ identity, artifact: largeArtifact, driveParentId: parentId,
-      store: largeStore, drive: largeDrive as unknown as SettlementDriveClient, attemptToken });
+      store: largeStore, drive: largeDrive as unknown as SettlementDriveClient, attemptToken,
+      canContinue: async () => { chunkHeartbeats += 1; return true; } });
     assert.equal(uploaded.outcome, "verified"); assert.equal(uploaded.reused, false);
     assert.equal(largeDrive.calls.chunk, 2); assert.equal(largeDrive.maxChunk, 8 * 1024 * 1024);
+    assert.equal(chunkHeartbeats, 2);
+
+    const lostChunkStore = store(largeRow); const lostChunkDrive = new FakeDrive(largeRow);
+    let lostChunkHeartbeat = 0;
+    assert.deepEqual(await backupDriveArtifact({ identity, artifact: largeArtifact, driveParentId: parentId,
+      store: lostChunkStore, drive: lostChunkDrive as unknown as SettlementDriveClient, attemptToken,
+      canContinue: async () => { lostChunkHeartbeat += 1; return lostChunkHeartbeat < 2; } }),
+    { outcome: "lease_lost" });
+    assert.equal(lostChunkDrive.calls.chunk, 1);
+    assert.equal(lostChunkStore.verifyCalls, 0);
 
     const badRow = { ...pendingRow, content_sha256: "0".repeat(64) };
     const badStore = store(badRow); const badDrive = new FakeDrive(badRow);

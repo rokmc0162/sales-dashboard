@@ -34,6 +34,7 @@ function makeSource(position: number, displayPath: string, text: string): Source
   return {
     bytes,
     entry: {
+      versionFileId: `10000000-0000-4000-8000-${position.toString().padStart(12, "0")}`,
       objectId: `00000000-0000-4000-8000-${position.toString().padStart(12, "0")}`,
       position,
       pathKey: displayPath.toLowerCase().normalize("NFC"),

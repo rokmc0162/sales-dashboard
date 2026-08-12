@@ -12,6 +12,10 @@ import type {
 import type {
   ProcessingArtifactOutcome,
 } from "./version-processing-artifacts";
+import type {
+  VersionDriveBackupEvidence,
+  VersionDriveBackupOutcome,
+} from "./version-drive-backup";
 
 type Sql = postgres.Sql;
 
@@ -20,8 +24,13 @@ export type VersionSnapshotRunOutcome =
   | { outcome: "failed" | "lease_lost" | "interrupted"; result?: never };
 
 export type VersionProcessingRunOutcome =
-  | { outcome: "workbook_ready"; result: Extract<ProcessingArtifactOutcome, { outcome: "workbook_ready" }> }
-  | { outcome: "failed" | "lease_lost" | "interrupted"; result?: never };
+  | {
+      outcome: "backup_ready";
+      result: Extract<ProcessingArtifactOutcome, { outcome: "workbook_ready" }> & {
+        backups: VersionDriveBackupEvidence[];
+      };
+    }
+  | { outcome: "failed" | "lease_lost" | "interrupted" | "retry"; result?: never };
 
 export interface VersionSnapshotRunDependencies {
   materialize(input: MaterializeClaimedVersionInput): Promise<SnapshotReadyResult>;
@@ -50,6 +59,16 @@ export interface VersionProcessingRunDependencies extends VersionSnapshotRunDepe
     workRoot: string;
     leaseSeconds: number;
   }): Promise<ProcessingArtifactOutcome>;
+  // Required so processing cannot succeed without a Drive backup: a claimed
+  // run only reaches backup_ready once every artifact is verified in Drive.
+  backupArtifacts(input: {
+    identity: {
+      jobId: string; runId: string; sourceVersionId: string; workerId: string; claimToken: string;
+    };
+    snapshot: SnapshotReadyResult;
+    workbook: Extract<ProcessingArtifactOutcome, { outcome: "workbook_ready" }>;
+    leaseSeconds: number;
+  }): Promise<VersionDriveBackupOutcome>;
 }
 
 export async function claimSettlementVersionRun(
@@ -138,21 +157,55 @@ export async function runClaimedVersionProcessing(
       return await deps.release(identity) ? { outcome: "interrupted" } : { outcome: "lease_lost" };
     } catch { return { outcome: "lease_lost" }; }
   }
+  const failRun = async (errorSummary: string): Promise<VersionProcessingRunOutcome> => {
+    try {
+      const failed = await deps.fail({ ...identity, errorSummary });
+      return { outcome: failed ? "failed" : "lease_lost" };
+    } catch { return { outcome: "lease_lost" }; }
+  };
+  let artifacts: ProcessingArtifactOutcome;
   try {
-    const artifacts = await deps.processArtifacts({
+    artifacts = await deps.processArtifacts({
       identity,
       snapshot: snapshot.result,
       workRoot: input.workRoot,
       leaseSeconds: input.leaseSeconds,
     });
-    if (artifacts.outcome === "lease_lost") return { outcome: "lease_lost" };
-    return { outcome: "workbook_ready", result: artifacts };
   } catch {
+    return failRun("local artifact failed");
+  }
+  if (artifacts.outcome === "lease_lost") return { outcome: "lease_lost" };
+  if (deps.shouldStop?.()) {
     try {
-      const failed = await deps.fail({ ...identity, errorSummary: "local artifact failed" });
-      return { outcome: failed ? "failed" : "lease_lost" };
+      return await deps.release(identity) ? { outcome: "interrupted" } : { outcome: "lease_lost" };
     } catch { return { outcome: "lease_lost" }; }
   }
+  let backup: VersionDriveBackupOutcome;
+  try {
+    backup = await deps.backupArtifacts({
+      identity,
+      snapshot: snapshot.result,
+      workbook: artifacts,
+      leaseSeconds: input.leaseSeconds,
+    });
+  } catch {
+    backup = { outcome: "failed" };
+  }
+  if (backup.outcome === "backup_ready") {
+    return { outcome: "backup_ready", result: { ...artifacts, backups: backup.backups } };
+  }
+  if (backup.outcome === "lease_lost") return { outcome: "lease_lost" };
+  if (backup.outcome === "retry") {
+    try {
+      return await deps.release(identity) ? { outcome: "retry" } : { outcome: "lease_lost" };
+    } catch { return { outcome: "lease_lost" }; }
+  }
+  if (backup.outcome === "interrupted") {
+    try {
+      return await deps.release(identity) ? { outcome: "interrupted" } : { outcome: "lease_lost" };
+    } catch { return { outcome: "lease_lost" }; }
+  }
+  return failRun("drive backup failed");
 }
 
 export function createPostgresVersionRunLifecycle(sql: Sql): Pick<VersionSnapshotRunDependencies, "fail" | "release"> {

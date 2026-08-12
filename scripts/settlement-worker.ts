@@ -19,6 +19,11 @@ import {
   runSettlementJob,
   validateSettlementWorkbook,
 } from "../src/features/settlement/lib/worker/run-job";
+import type { SettlementDriveClient } from "../src/features/settlement/lib/google-drive/client";
+import { createSettlementDriveBackupClient } from "../src/features/settlement/lib/worker/drive-backup-client";
+import { readSettlementDriveBackupConfig } from "../src/features/settlement/lib/worker/drive-backup-config";
+import { createPostgresDriveBackupStore } from "../src/features/settlement/lib/worker/drive-backup-runner";
+import { backupClaimedVersionArtifacts } from "../src/features/settlement/lib/worker/version-drive-backup";
 import {
   createPostgresVersionSourceFence,
   createPostgresVersionSourceStore,
@@ -127,6 +132,10 @@ async function main() {
     const versionFence = createPostgresVersionSourceFence(sql);
     const versionLifecycle = createPostgresVersionRunLifecycle(sql);
     const artifactFence = createPostgresProcessingArtifactFence(sql);
+    const driveBackupConfig = readSettlementDriveBackupConfig();
+    const driveBackup = driveBackupConfig.enabled ? driveBackupConfig : null;
+    const driveBackupStore = createPostgresDriveBackupStore(sql);
+    let driveClient: SettlementDriveClient | null = null;
     const [{ parseFile: versionParseFile }, { toSalesRecords: versionToSalesRecords, buildLookupMaps: versionBuildLookupMaps }, { xlsxArchiveDigest }] = await Promise.all([
       import("../src/features/settlement/lib/parsers/index"),
       import("../src/features/settlement/lib/aggregation/to-sales-records"),
@@ -137,9 +146,11 @@ async function main() {
     do {
       if (stopping) break;
       const cycle = await runSettlementWorkerCycle({
-        // Version processing remains deliberately one-shot until Drive backup
-        // and publication can continue a workbook-ready run safely.
-        versionEnabled: once && env.versionWorkRoot !== null,
+        // Version processing remains deliberately one-shot until publication
+        // can continue a backup-ready run safely. It fails closed without an
+        // enabled Drive backup config: a run is never claimed if its verified
+        // artifacts could not be backed up.
+        versionEnabled: once && env.versionWorkRoot !== null && driveBackup !== null,
         claimVersion: () => claimSettlementVersionRun(sql, id, leaseSeconds),
         runVersion: (run) => runClaimedVersionProcessing(run, {
           workRoot: env.versionWorkRoot as string,
@@ -165,6 +176,22 @@ async function main() {
             validateWorkbook: validateSettlementWorkbook,
             archiveDigest: xlsxArchiveDigest,
           }),
+          backupArtifacts: (input) => {
+            if (!driveBackup) throw new Error("settlement drive backup config is disabled");
+            driveClient ??= createSettlementDriveBackupClient(driveBackup);
+            return backupClaimedVersionArtifacts({
+              identity: input.identity,
+              snapshot: input.snapshot,
+              candidatePath: input.workbook.workbook.candidatePath,
+              driveParentId: driveBackup.backupRootFolderId,
+              leaseSeconds: input.leaseSeconds,
+            }, {
+              store: driveBackupStore,
+              drive: driveClient,
+              heartbeat: (heartbeatInput) => versionFence.heartbeat(heartbeatInput),
+              shouldStop: () => stopping,
+            });
+          },
         }),
         claimLegacy: () => claimSettlementJob(sql, id, leaseSeconds),
         runLegacy,

@@ -48,6 +48,9 @@ export class VersionSourceSnapshotError extends Error {
 
 // One frozen settlement_intake_version_files row, as handed to the worker.
 export type VersionSourceManifestEntry = {
+  // Database identity of the frozen settlement_intake_version_files row.
+  // Excluded from canonicalManifestBytes, whose contract mirrors migration 029.
+  versionFileId: string;
   objectId: string;
   position: number;
   pathKey: string;
@@ -134,6 +137,9 @@ function validateEntries(entries: VersionSourceManifestEntry[]): { totalBytes: n
   let totalBytes = 0;
   let previousPosition = -1;
   for (const entry of entries) {
+    if (typeof entry.versionFileId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entry.versionFileId)) {
+      fail("INVALID_MANIFEST", `invalid version_file_id for ${entry.displayPath}`);
+    }
     if (typeof entry.objectId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entry.objectId)) {
       fail("INVALID_MANIFEST", `invalid object_id for ${entry.displayPath}`);
     }

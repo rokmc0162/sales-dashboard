@@ -17,6 +17,8 @@ const DRIVE_ID_RE = /^[A-Za-z0-9_-]{1,256}$/;
 const VERSION_RE = /^(0|[1-9][0-9]{0,19})$/;
 const CHUNK_BYTES = 8 * 1024 * 1024;
 
+class DriveBackupLeaseLostError extends Error {}
+
 export type DriveBackupKind = "source_manifest" | "source_file" | "verified_workbook";
 export type DriveBackupRow = {
   id: string; kind: DriveBackupKind; backup_identity: string; content_sha256: string;
@@ -77,6 +79,7 @@ async function hashHandle(handle: fsp.FileHandle, size: number): Promise<string>
 }
 async function uploadFile(input: {
   drive: SettlementDriveClient; row: DriveBackupRow; artifact: DriveBackupArtifact; expectedSize: number;
+  canContinue?: () => Promise<boolean>;
 }): Promise<SettlementDriveFileMetadata> {
   const handle = await fsp.open(input.artifact.localPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   try {
@@ -94,6 +97,7 @@ async function uploadFile(input: {
     const buffer = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, input.expectedSize));
     let offset = 0; let complete: SettlementDriveFileMetadata | null = null;
     while (offset < input.expectedSize) {
+      if (input.canContinue && !(await input.canContinue())) throw new DriveBackupLeaseLostError();
       const length = Math.min(buffer.byteLength, input.expectedSize - offset);
       const { bytesRead } = await handle.read(buffer, 0, length, offset);
       if (bytesRead !== length) throw new Error("drive backup local artifact changed");
@@ -118,6 +122,7 @@ async function uploadFile(input: {
 export async function backupDriveArtifact(input: {
   identity: VersionClaimIdentity; artifact: DriveBackupArtifact; driveParentId: string;
   store: DriveBackupStore; drive: SettlementDriveClient; attemptToken?: string;
+  canContinue?: () => Promise<boolean>;
 }): Promise<DriveBackupResult> {
   const attemptToken = input.attemptToken ?? randomUUID();
   const row = await input.store.begin({ ...input.identity, attemptToken, kind: input.artifact.kind,
@@ -133,7 +138,15 @@ export async function backupDriveArtifact(input: {
   } else {
     const existing = await input.drive.findUniqueByAppProperties(row.drive_parent_id, props);
     if (existing) metadata = existing;
-    else { reused = false; metadata = await uploadFile({ drive: input.drive, row, artifact: input.artifact, expectedSize }); }
+    else {
+      reused = false;
+      try {
+        metadata = await uploadFile({ drive: input.drive, row, artifact: input.artifact, expectedSize, canContinue: input.canContinue });
+      } catch (error) {
+        if (error instanceof DriveBackupLeaseLostError) return { outcome: "lease_lost" };
+        throw error;
+      }
+    }
   }
   validateRemote(metadata, row, input.artifact, expectedSize);
   if (row.status !== "verified") {

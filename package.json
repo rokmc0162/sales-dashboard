@@ -34,6 +34,7 @@
     "test:settlement-drive-backups": "node --import tsx scripts/test-settlement-drive-backups.ts",
     "test:settlement-drive-backup-config": "node --import tsx scripts/test-settlement-drive-backup-config.ts",
     "test:settlement-drive-backup-runner": "node --import tsx scripts/test-settlement-drive-backup-runner.ts",
+    "test:settlement-version-drive-backup": "node --import tsx scripts/test-settlement-version-drive-backup.ts",
     "test:settlement-drive-backups-sql": "psql \"$SUPABASE_DATABASE_URL\" -v ON_ERROR_STOP=1 -f scripts/sql/test-033-settlement-drive-backups.sql",
     "test:settlement-archive-download": "node --import tsx scripts/test-archive-download.ts",
     "test:settlement-intake": "node --import tsx scripts/test-settlement-intake-version-contract.ts && node --import tsx scripts/test-settlement-intake-schema.ts && npm run test:settlement-intake-api && npm run test:settlement-intake-ui",

@@ -63,6 +63,7 @@ const READY = {
   snapshotReady: true as const,
   settlementMonth: "2026-07-01",
   entries: [{
+    versionFileId: "22222222-3333-4444-8555-666666666666",
     objectId: "33333333-4444-4555-8666-777777777777",
     position: 0,
     pathKey: "source.csv",
@@ -145,12 +146,19 @@ async function testProcessingRunnerOutcomes(): Promise<void> {
       assert.equal(input.identity.claimToken, RUN.claim_token);
       return { outcome: "workbook_ready", stage: {}, workbook: {} };
     },
+    backupArtifacts: async () => {
+      events.push("backup");
+      return { outcome: "backup_ready", backups: [{
+        kind: "verified_workbook", backupId: "60000000-0000-4000-8000-000000000001",
+        driveFileId: "drive-file", reused: false,
+      }] };
+    },
     fail: async (input: { errorSummary: string }) => { events.push(`fail:${input.errorSummary}`); return true; },
     release: async () => { events.push("release"); return true; },
   };
   const success = await runClaimedVersionProcessing(RUN, INPUT, base as never);
-  assert.equal(success.outcome, "workbook_ready");
-  assert.deepEqual(events, ["snapshot", "artifacts"]);
+  assert.equal(success.outcome, "backup_ready");
+  assert.deepEqual(events, ["snapshot", "artifacts", "backup"]);
 
   const interruptedEvents: string[] = [];
   let stopChecks = 0;
@@ -177,6 +185,29 @@ async function testProcessingRunnerOutcomes(): Promise<void> {
   } as never);
   assert.equal(failed.outcome, "failed");
   assert.deepEqual(events, ["snapshot", "fail:local artifact failed"]);
+
+  events.length = 0;
+  const backupFailed = await runClaimedVersionProcessing(RUN, INPUT, {
+    ...base, backupArtifacts: async () => ({ outcome: "failed" }),
+  } as never);
+  assert.equal(backupFailed.outcome, "failed");
+  assert.deepEqual(events, ["snapshot", "artifacts", "fail:drive backup failed"]);
+
+  events.length = 0;
+  const backupLost = await runClaimedVersionProcessing(RUN, INPUT, {
+    ...base, backupArtifacts: async () => ({ outcome: "lease_lost" }),
+  } as never);
+  assert.equal(backupLost.outcome, "lease_lost");
+  assert.deepEqual(events, ["snapshot", "artifacts"]);
+
+  events.length = 0;
+  const backupRetry = await runClaimedVersionProcessing(RUN, INPUT, {
+    ...base,
+    backupArtifacts: async () => ({ outcome: "retry" }),
+    release: async () => { events.push("release"); return true; },
+  } as never);
+  assert.equal(backupRetry.outcome, "retry");
+  assert.deepEqual(events, ["snapshot", "artifacts", "release"]);
 }
 
 function expectIdentity(input: { jobId: string; runId: string; sourceVersionId: string; workerId: string; claimToken: string }) {

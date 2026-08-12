@@ -27,6 +27,7 @@ export type FrozenVersionRow = {
 };
 
 export type FrozenVersionFileRow = {
+  id: string;
   object_id: string;
   position: number | string;
   path_key: string;
@@ -204,6 +205,7 @@ export async function loadFrozenVersionManifest(
     objects.add(row.object_id);
     total += sizeBytes;
     return {
+      versionFileId: row.id,
       objectId: row.object_id,
       position,
       pathKey: row.path_key,
@@ -318,7 +320,7 @@ export function createPostgresVersionSourceStore(sql: Sql): VersionSourceStore {
     },
     async listVersionFiles(versionId, offset, limit) {
       return sql<FrozenVersionFileRow[]>`
-        select object_id, position, path_key, display_name, size_bytes, sha256, storage_path
+        select id, object_id, position, path_key, display_name, size_bytes, sha256, storage_path
         from public.settlement_intake_version_files
         where version_id = ${versionId}::uuid
         order by position asc

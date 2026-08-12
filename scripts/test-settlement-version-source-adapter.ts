@@ -30,6 +30,7 @@ function digest(bytes: Uint8Array): string {
 function fileRow(position: number, bytes = Buffer.from(`row-${position}`)): FrozenVersionFileRow {
   const hex = position.toString(16).padStart(32, "0");
   return {
+    id: `10000000-0000-4000-8000-${position.toString().padStart(12, "0")}`,
     object_id: `00000000-0000-4000-8000-${position.toString().padStart(12, "0")}`,
     position,
     path_key: `folder/file-${position}.csv`,
@@ -75,6 +76,7 @@ async function testPaginationAndMapping(): Promise<void> {
   assert.deepEqual(calls, [[0, 100], [100, 100]]);
   assert.equal(result.entries.length, 200);
   assert.deepEqual(result.entries[135], {
+    versionFileId: rows[135].id,
     objectId: rows[135].object_id,
     position: 135,
     pathKey: rows[135].path_key,
@@ -139,6 +141,7 @@ async function testPrivateStorageStreaming(): Promise<void> {
     },
   });
   const stream = await opener({
+    versionFileId: row.id,
     objectId: row.object_id,
     position: Number(row.position),
     pathKey: row.path_key,
@@ -225,6 +228,7 @@ async function testFencedOrchestration(): Promise<void> {
   assert.equal(result.snapshotReady, true);
   assert.equal(result.settlementMonth, "2026-07-01");
   assert.deepEqual(result.entries, rows.map((row) => ({
+    versionFileId: row.id,
     objectId: row.object_id,
     position: Number(row.position),
     pathKey: row.path_key,
@@ -298,7 +302,7 @@ async function testPostgresWrappers(): Promise<void> {
   assert.match(calls[0].text, /join public\.settlement_intake_months m on m\.id = v\.intake_id/);
   assert.match(calls[0].text, /settlement_intake_versions/);
   assert.deepEqual(calls[0].values, [VERSION_ID]);
-  assert.match(calls[1].text, /select object_id, position, path_key, display_name, size_bytes, sha256, storage_path/);
+  assert.match(calls[1].text, /select id, object_id, position, path_key, display_name, size_bytes, sha256, storage_path/);
   assert.match(calls[1].text, /order by position asc/);
   assert.deepEqual(calls[1].values, [VERSION_ID, 100, 75]);
   assert.match(calls[2].text, /heartbeat_settlement_processing_run/);
