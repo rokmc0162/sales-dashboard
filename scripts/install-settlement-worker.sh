@@ -136,8 +136,10 @@ chmod 600 "$STAGED_ENV_FILE"
 
 mkdir -p "$STAGED_RUNTIME/src/features/settlement"
 cp -R "$REPO_DIR/src/features/settlement/data" "$STAGED_RUNTIME/src/features/settlement/data"
-mkdir -p "$STAGED_RUNTIME/src/features/settlement/worker-script"
-cp -R "$REPO_DIR/node_modules/tesseract.js/src/worker-script/node" "$STAGED_RUNTIME/src/features/settlement/worker-script/node"
+# tesseract.js resolves its Node worker relative to the bundled parser's
+# __dirname. Preserve the package src tree so worker-script/node can require
+# its parent worker implementation, utils, and constants by relative path.
+cp -R "$REPO_DIR/node_modules/tesseract.js/src/." "$STAGED_RUNTIME/src/features/settlement/"
 mkdir -p "$STAGED_RUNTIME/node_modules/pdfjs-dist"
 cp -R "$REPO_DIR/node_modules/pdfjs-dist/cmaps" "$STAGED_RUNTIME/node_modules/pdfjs-dist/cmaps"
 mkdir -p "$STAGED_RUNTIME/node_modules/@napi-rs" "$STAGED_RUNTIME/node_modules/@tesseract.js-data"
