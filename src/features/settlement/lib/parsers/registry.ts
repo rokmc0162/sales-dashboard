@@ -110,7 +110,8 @@ export const SIGNATURES: PlatformSignature[] = [
   },
   {
     code: "shueisha",
-    filenamePatterns: [/\d+_支払通知書（集英社）/],
+    // 通知書 (historical) and 報告書 (202607+) variants of the same statement.
+    filenamePatterns: [/\d+_支払(通知|報告)書（集英社）/],
     weight: 10,
   },
   {
@@ -128,6 +129,9 @@ export const SIGNATURES: PlatformSignature[] = [
     filenamePatterns: [
       /外販お支払報告書/,
       /ピッコマEPUB外販ロイヤリティー/,
+      // MG invoice pair (.xlsx detail / .pdf summary) on the shared RIVERSE
+      // invoice template — parsed via invoice-common inside the parser.
+      /^【請求書】ピッコマ「[^」]+」MG（株式会社RIVERSE）\.(xlsx|pdf)$/i,
     ],
     weight: 10,
   },
@@ -161,6 +165,10 @@ export function detectPlatform(opts: {
   sheetNames?: string[];
 }): PlatformDetection {
   const { filename, folderName, headerSample = [], sheetNames = [] } = opts;
+  // Web intake passes folder-prefixed display paths (202607/…/RIVERSE_202607.xlsx);
+  // signatures are written against basenames, so anchored patterns must see the
+  // basename. The full path is kept as a fallback for any path-shaped match.
+  const basename = filename.split(/[\\/]/).pop() || filename;
   const signals: string[] = [];
   const scores: Record<string, { score: number; reasons: string[] }> = {};
 
@@ -170,7 +178,7 @@ export function detectPlatform(opts: {
 
     // Filename match is the strongest signal
     for (const pat of sig.filenamePatterns) {
-      if (pat.test(filename)) {
+      if (pat.test(basename) || pat.test(filename)) {
         score += (sig.weight ?? 1) * 10;
         reasons.push(`filename~${pat.source}`);
       }

@@ -208,6 +208,134 @@ export async function binarizePng(png: Buffer, threshold = 150): Promise<Binariz
   };
 }
 
+export interface SkewEstimateOptions {
+  /** search bound in degrees (default ±3) */
+  maxDegrees?: number;
+  coarseStepDegrees?: number;
+  fineStepDegrees?: number;
+  /** hard page-pixel ceiling before skew work (default 40 million) */
+  maxPixels?: number;
+  /** upper bound on sampled raster positions (default 4,000,000) */
+  maxSamplePoints?: number;
+}
+
+/**
+ * Estimate the dominant skew of a scanned page from its binarized
+ * raster, bounded to ±maxDegrees. Shear-projection search: for each
+ * candidate angle the dark pixels are projected onto y' = y − x·tan(θ)
+ * and the profile energy Σcountᵢ² is scored — ruled lines and text
+ * baselines concentrate into few bins exactly when θ matches the scan
+ * skew. Coarse-to-fine, fully deterministic, no OCR involved; ties
+ * prefer the angle closest to zero so an axis-aligned page reports 0.
+ * Returns degrees such that content rows run along slope tan(deg) in
+ * image coordinates — rotate the page by −deg to deskew it.
+ */
+export function estimatePageSkewDegrees(page: BinarizedPage, opts: SkewEstimateOptions = {}): number {
+  const maxDeg = opts.maxDegrees ?? 3;
+  const coarseStep = opts.coarseStepDegrees ?? 0.25;
+  const fineStep = opts.fineStepDegrees ?? 0.05;
+  const maxPixels = opts.maxPixels ?? 40_000_000;
+  const maxSamplePoints = opts.maxSamplePoints ?? 4_000_000;
+  const { dark, width, height } = page;
+  const pixelCount = width * height;
+  if (!Number.isSafeInteger(pixelCount) || pixelCount < 1 || pixelCount > maxPixels) {
+    throw new Error("ocr-pdf: page raster exceeds skew-analysis pixel limit");
+  }
+  if (!Number.isFinite(maxDeg) || maxDeg <= 0 || maxDeg > 5
+    || !Number.isFinite(coarseStep) || coarseStep < 0.05 || coarseStep > maxDeg
+    || !Number.isFinite(fineStep) || fineStep < 0.01 || fineStep > coarseStep
+    || !Number.isSafeInteger(maxSamplePoints) || maxSamplePoints < 1_024 || maxSamplePoints > 4_000_000) {
+    throw new Error("ocr-pdf: invalid skew-analysis limits");
+  }
+
+  // Bound both runtime and memory independently of raster dimensions. The
+  // stride caps inspected positions; packed Int32 arrays avoid the much larger
+  // per-element overhead of JavaScript number arrays.
+  let stride = Math.max(2, Math.ceil(Math.sqrt(pixelCount / maxSamplePoints)));
+  while (Math.ceil(width / stride) * Math.ceil(height / stride) > maxSamplePoints) stride++;
+  let darkCount = 0;
+  for (let y = 0; y < height; y += stride) {
+    const row = y * width;
+    for (let x = 0; x < width; x += stride) {
+      if (dark[row + x]) darkCount++;
+    }
+  }
+  if (darkCount < 256) return 0; // blank page: nothing to align
+  const xs = new Int32Array(darkCount);
+  const ys = new Int32Array(darkCount);
+  let cursor = 0;
+  for (let y = 0; y < height; y += stride) {
+    const row = y * width;
+    for (let x = 0; x < width; x += stride) {
+      if (dark[row + x]) {
+        xs[cursor] = x;
+        ys[cursor] = y;
+        cursor++;
+      }
+    }
+  }
+
+  const maxShift = Math.ceil(width * Math.tan((maxDeg * Math.PI) / 180)) + 1;
+  const bins = new Int32Array(height + 2 * maxShift + 2);
+  const score = (deg: number): number => {
+    bins.fill(0);
+    const t = Math.tan((deg * Math.PI) / 180);
+    for (let i = 0; i < xs.length; i++) {
+      bins[Math.round(ys[i] - xs[i] * t) + maxShift]++;
+    }
+    let s = 0;
+    for (let i = 0; i < bins.length; i++) s += bins[i] * bins[i];
+    return s;
+  };
+  // Candidates arrive |deg|-ascending; strict > keeps the smaller skew on ties.
+  const best = (candidates: number[]): number => {
+    let bestDeg = candidates[0];
+    let bestScore = -1;
+    for (const deg of candidates) {
+      const s = score(deg);
+      if (s > bestScore) {
+        bestScore = s;
+        bestDeg = deg;
+      }
+    }
+    return bestDeg;
+  };
+
+  const coarseCandidates: number[] = [0];
+  for (let k = 1; k * coarseStep <= maxDeg + 1e-9; k++) {
+    coarseCandidates.push(k * coarseStep, -k * coarseStep);
+  }
+  const coarseBest = best(coarseCandidates);
+
+  const fineCandidates: number[] = [];
+  const half = Math.round(coarseStep / fineStep);
+  for (let k = -half; k <= half; k++) {
+    const deg = coarseBest + k * fineStep;
+    if (Math.abs(deg) <= maxDeg + 1e-9) fineCandidates.push(deg);
+  }
+  fineCandidates.sort((a, b) => Math.abs(a) - Math.abs(b) || a - b);
+  return best(fineCandidates);
+}
+
+/**
+ * Rotate a rendered page about its center, filling uncovered corners
+ * with white (paper). Pair with estimatePageSkewDegrees — rotating by
+ * the negated estimate deskews a slightly rotated scan so the
+ * axis-aligned grid detector and every later cell crop line up again.
+ */
+export async function rotatePng(png: Buffer, degrees: number): Promise<Buffer> {
+  const { createCanvas, loadImage } = await importCanvas();
+  const img = await loadImage(png);
+  const canvas = createCanvas(img.width, img.height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, img.width, img.height);
+  ctx.translate(img.width / 2, img.height / 2);
+  ctx.rotate((degrees * Math.PI) / 180);
+  ctx.drawImage(img, -img.width / 2, -img.height / 2);
+  return canvas.toBuffer("image/png");
+}
+
 function clusterPositions(hits: number[], gap = 6): number[] {
   const centers: number[] = [];
   let start = -1;

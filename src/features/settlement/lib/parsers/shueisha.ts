@@ -11,8 +11,9 @@
  *     are aggregated by normalized title + channel kind (単行本/話配信),
  *     SUMMING 支払額 — never deduped by amount.
  *
- * Pages are rasterized + binarized, the ruled grids are detected from
- * pixel runs, and each cell is OCR'd locally (tesseract.js, packaged
+ * Pages are rasterized, deskewed when the scan is slightly rotated
+ * (bounded deterministic shear-projection estimate) + binarized, the
+ * ruled grids are detected from pixel runs, and each cell is OCR'd locally (tesseract.js, packaged
  * jpn+eng data). Amount cells use a digits-only whitelist and OCR only
  * a primary crop variant; alternate rect/threshold variants are read
  * lazily — one bounded round at a time — only while the printed totals
@@ -36,6 +37,7 @@ import {
   binarizePng,
   createLocalOcrWorkers,
   detectTableGrid,
+  estimatePageSkewDegrees,
   gridCellRect,
   loadPageImage,
   ocrCellAmount,
@@ -43,6 +45,7 @@ import {
   ocrPngToLines,
   regionInkRatio,
   renderPdfPagesToPng,
+  rotatePng,
   terminateOcrWorkers,
   type BinarizedPage,
   type OcrLine,
@@ -420,6 +423,9 @@ export function buildShueishaParseResult(extract: ShueishaExtract): ParseResult 
 // ---------------------------------------------------------------------------
 
 const EMPTY_CELL_INK = 0.0025;
+
+/** Smallest estimated skew worth correcting by re-rendering the page. */
+const MIN_DESKEW_DEGREES = 0.15;
 
 /**
  * One rasterized page in both flavors: the original render for text OCR
@@ -1063,9 +1069,33 @@ export async function extractShueishaFromPdf(buffer: Buffer): Promise<ShueishaEx
   const workers = await createLocalOcrWorkers([...SHUEISHA_OCR_WORKER_LANGS]);
   const [page1Text, page1Amount, page2Text, page2Amount] = workers;
   try {
+    // Slightly rotated scans break the axis-aligned ruled-grid detector
+    // (rules drift out of its small perpendicular window), so pages are
+    // deskewed here — at preparation, not inside detection — keeping the
+    // detected rule coordinates aligned with the raster every later cell
+    // crop and ink ratio reads from. Estimation is bounded and
+    // deterministic (shear-projection search); below the threshold the
+    // detector's own gap tolerance absorbs the drift and re-sampling
+    // would only soften glyphs.
     const prepare = async (png: Buffer): Promise<SourcePage> => {
-      const [img, bin] = await Promise.all([loadPageImage(png), binarizePng(png)]);
-      return { png, img, bin };
+      let pagePng = png;
+      let bin = await binarizePng(pagePng);
+      const skew = estimatePageSkewDegrees(bin);
+      if (Math.abs(skew) >= MIN_DESKEW_DEGREES) {
+        pagePng = await rotatePng(pagePng, -skew);
+        bin = await binarizePng(pagePng);
+      }
+      // Preserve the historical threshold whenever it finds a complete
+      // Shueisha grid. Some faint blue/grey carbon-copy scans lose columns
+      // and row rules at 150; only those incomplete grids are re-binarized at
+      // 180. OCR still reads pagePng, so this changes geometry/ink detection
+      // only — never the source pixels used to recognize titles or amounts.
+      const grid = detectTableGrid(bin);
+      if (!grid || grid.xs.length < 7 || grid.ys.length < 13) {
+        bin = await binarizePng(pagePng, 180);
+      }
+      const img = await loadPageImage(pagePng);
+      return { png: pagePng, img, bin };
     };
     const [page1, page2] = await Promise.all([prepare(pages[0]), prepare(pages[1])]);
     const reconciliation: Page1Reconciliation = {

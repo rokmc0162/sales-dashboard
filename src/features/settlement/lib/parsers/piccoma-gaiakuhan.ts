@@ -18,6 +18,11 @@
  *      - Invoice with a single consolidated line per title — cross-check only.
  *   3. `.pdf` — ignored.
  *
+ * MG invoice pair (`【請求書】ピッコマ「…」MG（株式会社RIVERSE）.xlsx/.pdf`,
+ * shared RIVERSE invoice template) is delegated to invoice-common: the XLSX
+ * grid is the authoritative detail, the PDF twin a summary-level evidence
+ * record — never aggregated as sales.
+ *
  * Ground-truth mapping (GT channel = `piccoma_sales`, single row per title):
  *   after_tax_jpy         = Σ(受領額)   per 対象作品
  *   total_amount_jpy      = round(after_tax_jpy × 1.10)
@@ -35,12 +40,17 @@
  */
 import type { ParseResult, RawRecord } from "@/features/settlement/lib/schema/sales";
 import { readWorkbook, sheetToMatrix, toNumber } from "./common";
+import { parseInvoiceXlsx, parseInvoicePdf, type InvoiceContext } from "./invoice-common";
 import aliases from "../../data/aliases/piccoma-gaiakuhan.json" with { type: "json" };
 
 const PRIMARY_SHEET = aliases.source_files.payment_report.primary_sheet;
 const HEADER_LABEL = aliases.source_files.payment_report.header_row_label;
 const INVOICE_PATTERN = new RegExp(aliases.source_files.invoice.pattern);
 const REPORT_PATTERN = new RegExp(aliases.source_files.payment_report.pattern);
+
+// MG (minimum-guarantee) invoice pair on the shared RIVERSE invoice template:
+// 【請求書】ピッコマ「…」MG（株式会社RIVERSE）.xlsx / .pdf
+const MG_INVOICE_PATTERN = /^【請求書】ピッコマ「[^」]+」MG（株式会社RIVERSE）\.(xlsx|pdf)$/i;
 
 const DEFAULT_TYPE = aliases.defaults.type;
 const DEFAULT_DIST = aliases.defaults.distribution_strategy;
@@ -62,6 +72,11 @@ interface Agg {
 
 function looksLikePdf(filename: string): boolean {
   return /\.pdf$/i.test(filename);
+}
+
+/** Web intake passes folder-prefixed display paths (202607/…/file.xlsx). */
+function basenameOf(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
 }
 
 /** Extract the reporting month (YYYY-MM-01) from filename. */
@@ -119,11 +134,30 @@ export async function parsePiccomaGaiakuhan({
   buffer: Buffer;
 }): Promise<ParseResult> {
   const errors: string[] = [];
-  const salesMonth = extractReportMonth(filename);
+  // Filename patterns are written against basenames; the display path may
+  // carry a folder prefix (202607/…) that must not affect routing or months.
+  const basename = basenameOf(filename);
+  const salesMonth = extractReportMonth(basename);
   // settlement follows the sales month by one month; matches BookLive / cmoa convention
   const settlementMonth = nextMonth(salesMonth);
 
-  if (looksLikePdf(filename)) {
+  // MG invoice pair — shared RIVERSE invoice template via invoice-common.
+  // The XLSX grid is the authoritative detail; the PDF twin stays a
+  // summary-level evidence record (never aggregated as sales).
+  if (MG_INVOICE_PATTERN.test(basename)) {
+    const ctx: InvoiceContext = {
+      platform_code: "piccoma_gaiakuhan",
+      client_code: CLIENT,
+      channel_code: CHANNEL,
+      type: "MG",
+      note: "ピッコマMG請求書",
+    };
+    return looksLikePdf(basename)
+      ? parseInvoicePdf(basename, buffer, ctx)
+      : parseInvoiceXlsx(basename, buffer, ctx);
+  }
+
+  if (looksLikePdf(basename)) {
     return {
       platform_code: "piccoma_gaiakuhan",
       sales_month: salesMonth,
@@ -134,7 +168,7 @@ export async function parsePiccomaGaiakuhan({
   }
 
   // Invoice file is a cross-check only — don't double count.
-  if (INVOICE_PATTERN.test(filename)) {
+  if (INVOICE_PATTERN.test(basename)) {
     return {
       platform_code: "piccoma_gaiakuhan",
       sales_month: salesMonth,
@@ -145,7 +179,8 @@ export async function parsePiccomaGaiakuhan({
   }
 
   // Accept both the named-pattern report and unknown .xlsx by best-effort.
-  if (!REPORT_PATTERN.test(filename)) {
+  // Matched against the basename so a valid folder prefix is not an error.
+  if (!REPORT_PATTERN.test(basename)) {
     errors.push(
       `piccoma_gaiakuhan: filename does not match expected report pattern — treating as report anyway (${filename})`,
     );

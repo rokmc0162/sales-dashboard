@@ -120,7 +120,8 @@ export async function parseMechacomic({
   // month *after* the sales month (GT rows in 202604.json have sales_month =
   // 2026-03-01 for the 202603 file; settlement 2026-04-30) and the deposit lands
   // at the end of the month after settlement (2026-05-31).
-  const m = filename.match(/(\d{4})(\d{2})/);
+  const basename = filename.split(/[\\/]/).pop() || filename;
+  const m = basename.match(/^RIVERSE_(\d{4})(\d{2})\.xlsx$/i);
   const salesMonth = m ? `${m[1]}-${m[2]}-01` : null;
   const settlementMonth = salesMonth ? addMonthsEndOfMonth(salesMonth, 1) : null;
   const depositMonth = salesMonth ? addMonthsEndOfMonth(salesMonth, 2) : null;
