@@ -94,6 +94,16 @@ function fingerprint(rows: Row[]): string {
     piccomaSourceRoleFromFilename("取次report_株式会社RIVERSE_20990101_v1.xlsx"),
     "broker_summary",
   );
+  assert.equal(
+    piccomaSourceRoleFromFilename("209902/209901_ピッコマ/出版社report_株式会社RIVERSE_20990101_001.xlsx"),
+    "publisher_detail",
+    "folder-prefixed immutable display paths classify by basename",
+  );
+  assert.equal(
+    piccomaSourceRoleFromFilename("209902\\decoy-folder\\取次report_株式会社RIVERSE_20990101_v1.xlsx"),
+    "broker_summary",
+    "Windows-style folder prefixes classify by basename",
+  );
   assert.equal(piccomaSourceRoleFromFilename("someother_report.xlsx"), null);
   assert.equal(piccomaSourceRoleFromFilename(null), null);
 }

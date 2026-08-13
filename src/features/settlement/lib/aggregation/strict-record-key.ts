@@ -246,7 +246,8 @@ export type PiccomaSourceRole = "publisher_detail" | "broker_summary";
  * logs, errors, or exported output.
  */
 export function piccomaSourceRoleFromFilename(filename: unknown): PiccomaSourceRole | null {
-  const name = text(filename);
+  const full = text(filename).replace(/\\/g, "/");
+  const name = full.slice(full.lastIndexOf("/") + 1);
   if (/^出版社report_/.test(name)) return "publisher_detail";
   if (/^取次report_/.test(name)) return "broker_summary";
   return null;

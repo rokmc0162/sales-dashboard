@@ -7,7 +7,7 @@ import type { Database } from "../src/features/settlement/lib/supabase/types";
 import { fillInputV2Template } from "../src/features/settlement/lib/export/input-v2-filler";
 import { buildLocalParseStage } from "../src/features/settlement/lib/worker/local-parse-stage";
 import { persistLocalParseStage } from "../src/features/settlement/lib/worker/local-stage-store";
-import { generateLocalWorkbookArtifact } from "../src/features/settlement/lib/worker/local-workbook-artifact";
+import { generateLocalWorkbookArtifact, verifyWorkbookWithLibreOffice } from "../src/features/settlement/lib/worker/local-workbook-artifact";
 import { loadInputV2Records } from "../src/features/settlement/lib/export/load-input-v2-records";
 import {
   createSupabasePreparedUploadStore,
@@ -43,6 +43,11 @@ import {
   createPostgresProcessingArtifactFence,
   processSnapshotArtifacts,
 } from "../src/features/settlement/lib/worker/version-processing-artifacts";
+import {
+  createHistoricalLedgerStore,
+  prepareHistoricalLedgerRecords,
+  validateHistoricalLedgerWorkbook,
+} from "../src/features/settlement/lib/worker/version-ledger-gate";
 import { runSettlementWorkerCycle } from "../src/features/settlement/lib/worker/worker-cycle";
 import { requireWorkerEnvironment } from "../src/features/settlement/lib/worker/worker-env";
 
@@ -144,6 +149,8 @@ async function main() {
     const driveBackupStore = createPostgresDriveBackupStore(sql);
     const localSyncBackupStore = createPostgresLocalSyncBackupStore(sql);
     const publicationStore = createVersionPublicationStore(sql, supabase);
+    const historicalLedgerStore = createHistoricalLedgerStore(sql, supabase);
+
     let driveClient: SettlementDriveClient | null = null;
     const [{ parseFile: versionParseFile }, { toSalesRecords: versionToSalesRecords, buildLookupMaps: versionBuildLookupMaps }, { xlsxArchiveDigest }] = await Promise.all([
       import("../src/features/settlement/lib/parsers/index"),
@@ -181,10 +188,36 @@ async function main() {
             toSalesRecords: versionToSalesRecords,
             buildStage: buildLocalParseStage,
             persistStage: persistLocalParseStage,
+            prepareRecords: async ({ identity, stage }) => {
+              const baseline = await historicalLedgerStore.loadPrior(identity.jobId, stage.settlementMonth);
+              if (!baseline) throw new Error("historical ledger baseline unavailable");
+              const prepared = await prepareHistoricalLedgerRecords({ stage, baseline });
+              return {
+                records: prepared.records,
+                baselineMonth: baseline.month,
+                baselinePublicationId: prepared.priorPublicationId,
+                baselineSha256: prepared.priorSha256,
+              };
+            },
             generateWorkbook: generateLocalWorkbookArtifact,
             fillWorkbook: fillInputV2Template,
             validateWorkbook: validateSettlementWorkbook,
             archiveDigest: xlsxArchiveDigest,
+            validatePreparedWorkbook: async ({ stage, prepared, workbook }) => {
+              const { readFile } = await import("node:fs/promises");
+              await validateHistoricalLedgerWorkbook({
+                candidate: await readFile(workbook.officePath),
+                month: stage.settlementMonth.slice(0, 7).replace("-", ""),
+                records: prepared.records,
+                fillWorkbook: fillInputV2Template,
+                recalculateWorkbook: async (buffer) => (await verifyWorkbookWithLibreOffice({
+                  buffer,
+                  workRoot: env.versionWorkRoot as string,
+                  validateWorkbook: validateSettlementWorkbook,
+                  archiveDigest: xlsxArchiveDigest,
+                })).verifiedWorkbook,
+              });
+            },
           }),
           backupArtifacts: (input) => {
             if (env.backupTransport === "local-sync" && env.localSyncRoot) {

@@ -40,10 +40,11 @@ const WORKBOOK: LocalWorkbookArtifactResult = {
     workbookSizeBytes: 200, officeWorkbookSha256: "a".repeat(64), officeWorkbookSizeBytes: 210,
     reopened: { sheetCount: 2, rowCount: 3 }, office: {
       verifier: "libreoffice", version: "LibreOffice test", reopened: { sheetCount: 2, rowCount: 3 }, archiveDigest: "f".repeat(64),
-    } },
+    }, baselineMonth: "2026-06-01", baselinePublicationId: null, baselineSha256: "8".repeat(64) },
 };
 
 const PERSISTED_STAGE_SHA = "9".repeat(64);
+const BASELINE_SHA = "8".repeat(64);
 
 function deps(events: string[], heartbeat = [true, true], stageReady = true, workbookReady = true) {
   return {
@@ -57,7 +58,9 @@ function deps(events: string[], heartbeat = [true, true], stageReady = true, wor
     toSalesRecords: () => { throw new Error("not called by injected build"); },
     buildStage: async (input: { settlementMonth: string; snapshotDir: string }) => { events.push("build-stage"); assert.equal(input.settlementMonth, "2026-07-01"); assert.equal(input.snapshotDir, SNAPSHOT.snapshotDir); return STAGE; },
     persistStage: async () => { events.push("persist-stage"); return { stagingDir: "/tmp/staging", stagePath: "/tmp/staging/stage.json", sha256: PERSISTED_STAGE_SHA, sizeBytes: 100, reused: false }; },
+    prepareRecords: async () => { events.push("prepare"); return { records: [{}], baselineMonth: "2026-06-01", baselinePublicationId: null, baselineSha256: BASELINE_SHA }; },
     generateWorkbook: async () => { events.push("workbook"); return WORKBOOK; },
+    validatePreparedWorkbook: async () => { events.push("validate"); },
     fillWorkbook: async () => { throw new Error("not called by injected workbook"); },
     validateWorkbook: async () => ({ sheetCount: 1, rowCount: 1 }),
     archiveDigest: async () => "0".repeat(64),
@@ -68,7 +71,7 @@ async function testOrchestration(): Promise<void> {
   const events: string[] = [];
   const result = await processSnapshotArtifacts({ identity: IDENTITY, snapshot: SNAPSHOT, workRoot: "/tmp/work", leaseSeconds: 60 }, deps(events));
   assert.equal(result.outcome, "workbook_ready");
-  assert.deepEqual(events, ["heartbeat", "lookups", "build-stage", "persist-stage", "stage-ready", "heartbeat", "workbook", "workbook-ready"]);
+  assert.deepEqual(events, ["heartbeat", "lookups", "build-stage", "persist-stage", "stage-ready", "heartbeat", "prepare", "workbook", "validate", "workbook-ready"]);
 
   const firstLost: string[] = [];
   assert.equal((await processSnapshotArtifacts({ identity: IDENTITY, snapshot: SNAPSHOT, workRoot: "/tmp/work", leaseSeconds: 60 }, deps(firstLost, [false]))).outcome, "lease_lost");
@@ -79,6 +82,27 @@ async function testOrchestration(): Promise<void> {
   const secondLost: string[] = [];
   assert.equal((await processSnapshotArtifacts({ identity: IDENTITY, snapshot: SNAPSHOT, workRoot: "/tmp/work", leaseSeconds: 60 }, deps(secondLost, [true, false]))).outcome, "lease_lost");
   assert.ok(!secondLost.includes("workbook"));
+
+  const prepareFailed: string[] = [];
+  const prepareDeps = deps(prepareFailed);
+  prepareDeps.prepareRecords = async () => { prepareFailed.push("prepare"); throw new Error("baseline unavailable"); };
+  await assert.rejects(() => processSnapshotArtifacts({ identity: IDENTITY, snapshot: SNAPSHOT, workRoot: "/tmp/work", leaseSeconds: 60 }, prepareDeps));
+  assert.ok(!prepareFailed.includes("workbook-ready"));
+
+  const validationFailed: string[] = [];
+  const validationDeps = deps(validationFailed);
+  validationDeps.validatePreparedWorkbook = async () => { validationFailed.push("validate"); throw new Error("semantic mismatch"); };
+  await assert.rejects(() => processSnapshotArtifacts({ identity: IDENTITY, snapshot: SNAPSHOT, workRoot: "/tmp/work", leaseSeconds: 60 }, validationDeps));
+  assert.ok(!validationFailed.includes("workbook-ready"));
+
+  const mismatchFailed: string[] = [];
+  const mismatchDeps = deps(mismatchFailed);
+  mismatchDeps.generateWorkbook = async () => {
+    mismatchFailed.push("workbook");
+    return { ...WORKBOOK, evidence: { ...WORKBOOK.evidence, baselineSha256: "7".repeat(64) } };
+  };
+  await assert.rejects(() => processSnapshotArtifacts({ identity: IDENTITY, snapshot: SNAPSHOT, workRoot: "/tmp/work", leaseSeconds: 60 }, mismatchDeps));
+  assert.ok(!mismatchFailed.includes("workbook-ready"));
 }
 
 async function testPostgresFence(): Promise<void> {
@@ -87,13 +111,13 @@ async function testPostgresFence(): Promise<void> {
   const fence = createPostgresProcessingArtifactFence(sql);
   assert.equal(await fence.heartbeat({ ...IDENTITY, leaseSeconds: 60 }), true);
   assert.equal(await fence.markStageReady({ ...IDENTITY, stageSha256: STAGE.digest, stageSizeBytes: 100, fileCount: 1, rawRowCount: 1, salesRowCount: 1 }), true);
-  assert.equal(await fence.markWorkbookReady({ ...IDENTITY, workbookSha256: "d".repeat(64), archiveSha256: "e".repeat(64), sizeBytes: 200, sheetCount: 2, rowCount: 3, officeVerifier: "libreoffice", officeVersion: "LibreOffice test", officeArchiveSha256: "f".repeat(64), officeSheetCount: 2, officeRowCount: 3 }), true);
+  assert.equal(await fence.markWorkbookReady({ ...IDENTITY, workbookSha256: "d".repeat(64), archiveSha256: "e".repeat(64), sizeBytes: 200, sheetCount: 2, rowCount: 3, officeVerifier: "libreoffice", officeVersion: "LibreOffice test", officeArchiveSha256: "f".repeat(64), officeSheetCount: 2, officeRowCount: 3, baselineMonth: "2026-06-01", baselinePublicationId: null, baselineSha256: BASELINE_SHA }), true);
   assert.match(calls[0].text, /heartbeat_settlement_processing_run/);
   assert.deepEqual(calls[0].values, [IDENTITY.jobId, IDENTITY.runId, IDENTITY.workerId, IDENTITY.claimToken, 60]);
   assert.match(calls[1].text, /mark_settlement_processing_run_stage_ready/);
   assert.deepEqual(calls[1].values, [IDENTITY.jobId, IDENTITY.runId, IDENTITY.workerId, IDENTITY.claimToken, STAGE.digest, 100, 1, 1, 1]);
   assert.match(calls[2].text, /mark_settlement_processing_run_workbook_ready/);
-  assert.equal(calls[2].values.length, 14);
+  assert.equal(calls[2].values.length, 17);
 }
 
 async function main(): Promise<void> {

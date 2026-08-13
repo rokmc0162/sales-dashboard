@@ -32,6 +32,9 @@ async function buildBaselineWorkbook(): Promise<Buffer> {
   for (let row = 1; row < FIRST_DATA_ROW; row += 1) {
     ws.getRow(row).getCell(1).value = `header ${row}`;
   }
+  ws.getRow(4).getCell(1).value = "Unique Identifier";
+  ws.getRow(4).getCell(15).value = "Channel";
+  ws.getRow(4).getCell(16).value = "Type";
 
   const row = ws.getRow(FIRST_DATA_ROW);
   row.getCell(2).value = richText;

@@ -31,6 +31,16 @@ export type WorkbookEvidence = {
   officeArchiveSha256: string;
   officeSheetCount: number;
   officeRowCount: number;
+  baselineMonth: string;
+  baselinePublicationId: string | null;
+  baselineSha256: string;
+};
+
+export type PreparedLedgerRecords = {
+  records: Record<string, unknown>[];
+  baselineMonth: string;
+  baselinePublicationId: string | null;
+  baselineSha256: string;
 };
 
 export interface ProcessingArtifactFence {
@@ -57,6 +67,16 @@ export interface ProcessingArtifactDependencies {
     toSalesRecords: ToSalesRecords;
   }): Promise<LocalParseStageResult>;
   persistStage(input: { workRoot: string; runId: string; stage: LocalParseStageResult }): Promise<LocalStagePersistenceResult>;
+  prepareRecords(input: {
+    identity: VersionClaimIdentity;
+    stage: LocalParseStageResult;
+  }): Promise<PreparedLedgerRecords>;
+  validatePreparedWorkbook(input: {
+    identity: VersionClaimIdentity;
+    stage: LocalParseStageResult;
+    prepared: PreparedLedgerRecords;
+    workbook: LocalWorkbookArtifactResult;
+  }): Promise<void>;
   generateWorkbook(input: {
     stage: LocalParseStageResult;
     workRoot: string;
@@ -64,6 +84,8 @@ export interface ProcessingArtifactDependencies {
     fillWorkbook: (input: { month: string; records: Record<string, unknown>[] }) => Promise<InputV2FillResult>;
     validateWorkbook: (buffer: Buffer) => Promise<WorkbookShape>;
     archiveDigest: (buffer: Buffer) => Promise<string>;
+    preparedRecords?: Record<string, unknown>[];
+    baselineEvidence?: { month: string; publicationId: string | null; sha256: string };
   }): Promise<LocalWorkbookArtifactResult>;
   fillWorkbook(input: { month: string; records: Record<string, unknown>[] }): Promise<InputV2FillResult>;
   validateWorkbook(buffer: Buffer): Promise<WorkbookShape>;
@@ -102,6 +124,12 @@ export async function processSnapshotArtifacts(input: {
   if (!(await deps.fence.heartbeat({ ...identity, leaseSeconds: input.leaseSeconds }))) {
     return { outcome: "lease_lost" };
   }
+  const prepared = await deps.prepareRecords({ identity, stage });
+  if (!prepared || !Array.isArray(prepared.records) || prepared.records.length < 1
+      || !/^\d{4}-(0[1-9]|1[0-2])-01$/.test(prepared.baselineMonth)
+      || !/^[0-9a-f]{64}$/.test(prepared.baselineSha256)) {
+    throw new Error("historical ledger preparation invalid");
+  }
   const workbook = await deps.generateWorkbook({
     stage,
     workRoot: input.workRoot,
@@ -109,8 +137,20 @@ export async function processSnapshotArtifacts(input: {
     fillWorkbook: deps.fillWorkbook,
     validateWorkbook: deps.validateWorkbook,
     archiveDigest: deps.archiveDigest,
+    preparedRecords: prepared.records,
+    baselineEvidence: {
+      month: prepared.baselineMonth,
+      publicationId: prepared.baselinePublicationId,
+      sha256: prepared.baselineSha256,
+    },
   });
+  await deps.validatePreparedWorkbook({ identity, stage, prepared, workbook });
   const evidence = workbook.evidence;
+  if (evidence.baselineMonth !== prepared.baselineMonth
+      || evidence.baselinePublicationId !== prepared.baselinePublicationId
+      || evidence.baselineSha256 !== prepared.baselineSha256) {
+    throw new Error("historical ledger evidence mismatch");
+  }
   if (evidence.office.verifier !== "libreoffice") return { outcome: "lease_lost" };
   if (!(await deps.fence.markWorkbookReady({
     ...identity,
@@ -124,6 +164,9 @@ export async function processSnapshotArtifacts(input: {
     officeArchiveSha256: evidence.office.archiveDigest,
     officeSheetCount: evidence.office.reopened.sheetCount,
     officeRowCount: evidence.office.reopened.rowCount,
+    baselineMonth: prepared.baselineMonth,
+    baselinePublicationId: prepared.baselinePublicationId,
+    baselineSha256: prepared.baselineSha256,
   }))) return { outcome: "lease_lost" };
   return { outcome: "workbook_ready", stage: persisted, workbook };
 }
@@ -157,7 +200,8 @@ export function createPostgresProcessingArtifactFence(sql: postgres.Sql): Proces
           ${input.sheetCount}::integer, ${input.rowCount}::integer,
           ${input.officeVerifier}::text, ${input.officeVersion}::text,
           ${input.officeArchiveSha256}::text, ${input.officeSheetCount}::integer,
-          ${input.officeRowCount}::integer
+          ${input.officeRowCount}::integer, ${input.baselineMonth}::date,
+          ${input.baselinePublicationId}::uuid, ${input.baselineSha256}::text
         ) as ok`;
       return rows[0]?.ok === true;
     },

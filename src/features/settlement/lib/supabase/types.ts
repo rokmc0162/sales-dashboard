@@ -1109,6 +1109,10 @@ export type Database = {
         };
         Returns: string;
       };
+      retry_settlement_version_job: {
+        Args: { p_source_version_id: string; p_actor: string };
+        Returns: string;
+      };
       claim_settlement_job: {
         Args: { p_worker_id: string; p_lease_seconds?: number };
         Returns: SettlementJobRow[];

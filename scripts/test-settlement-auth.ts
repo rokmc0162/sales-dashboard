@@ -930,9 +930,9 @@ async function testSettlementRouteInventory() {
 
   for (const path of routePaths) {
     const source = await readFile(path, "utf8");
-    const guardCalls = source.match(/requireSettlementApiAuth\(request/g) ?? [];
+    const guardCalls = source.match(/requireSettlementApi(?:Auth|Principal)\(request/g) ?? [];
     const awaitedGuardCalls =
-      source.match(/await requireSettlementApiAuth\(request/g) ?? [];
+      source.match(/await requireSettlementApi(?:Auth|Principal)\(request/g) ?? [];
     assert.equal(
       awaitedGuardCalls.length,
       guardCalls.length,

@@ -1,7 +1,9 @@
 import ExcelJS from "exceljs";
 import { readFile } from "node:fs/promises";
+import { inputV2ElectronicSheet } from "./input-v2-routing";
 
 import { normalizeSbWorkKey } from "@/features/settlement/lib/parsers/sb-creative";
+import { ELECTRONIC_COL } from "./input-v2-filler";
 import { normalizeTitleKey } from "./input-v2-template-lookups";
 
 type Prim = string | number | boolean | Date | null;
@@ -1188,28 +1190,59 @@ export function mergeCarryForwardRows(
   };
 }
 
-function readBaselineRow(row: ExcelJS.Row): Record<string, unknown> | null {
+function readBaselineRow(
+  row: ExcelJS.Row,
+  columns: Readonly<Record<keyof typeof BASELINE_COL, number>>,
+): Record<string, unknown> | null {
   const record: Record<string, unknown> = {};
-  for (const [field, col] of Object.entries(BASELINE_COL)) {
+  for (const [field, col] of Object.entries(columns)) {
     record[field] = cellValue(row.getCell(col).value);
   }
   if (!record.channel_title_jp && !record.channel) return null;
   return record;
 }
 
+function normalizedHeader(sheet: ExcelJS.Worksheet, column: number): string {
+  return String(cellValue(sheet.getRow(4).getCell(column).value) ?? "").normalize("NFKC").trim().toLowerCase();
+}
+
+function baselineColumns(sheet: ExcelJS.Worksheet): Readonly<Record<keyof typeof BASELINE_COL, number>> | null {
+  if (normalizedHeader(sheet, ELECTRONIC_COL.unique_identifier) === "unique identifier"
+      && normalizedHeader(sheet, ELECTRONIC_COL.channel) === "channel"
+      && normalizedHeader(sheet, ELECTRONIC_COL.type) === "type") {
+    return ELECTRONIC_COL;
+  }
+  if (normalizedHeader(sheet, BASELINE_COL.unique_identifier) === "unique identifier"
+      && normalizedHeader(sheet, BASELINE_COL.channel) === "channel"
+      && normalizedHeader(sheet, BASELINE_COL.type) === "type") {
+    return BASELINE_COL;
+  }
+  return null;
+}
+
 export async function loadCarryForwardBaselineRowsFromBuffer(
   buffer: Buffer | ArrayBuffer | Uint8Array,
+  expectedMonth?: string,
 ): Promise<Record<string, unknown>[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer as unknown as ExcelJS.Buffer);
-  const ws = wb.worksheets.find((sheet) => /^input_電子_\d+月$/.test(sheet.name));
-  if (!ws) {
-    throw new Error("Carry-forward baseline has no input_電子_N月 sheet");
+  const candidates = wb.worksheets
+    .filter((sheet) => /^input_電子_\d+月$/.test(sheet.name.normalize("NFKC").trim()))
+    .map((sheet) => ({ sheet, columns: baselineColumns(sheet) }))
+    .filter((entry): entry is { sheet: ExcelJS.Worksheet; columns: Readonly<Record<keyof typeof BASELINE_COL, number>> } => entry.columns !== null);
+  const expectedSheet = expectedMonth ? inputV2ElectronicSheet(expectedMonth) : null;
+  const selected = expectedSheet
+    ? candidates.find((entry) => entry.sheet.name.normalize("NFKC").trim() === expectedSheet)
+    : candidates.length === 1 ? candidates[0] : undefined;
+  if (!selected) {
+    throw new Error(expectedSheet
+      ? `Carry-forward baseline has no compatible ${expectedSheet} sheet`
+      : "Carry-forward baseline sheet is ambiguous or missing");
   }
 
   const records: Record<string, unknown>[] = [];
-  for (let r = BASELINE_FIRST_DATA_ROW; r <= ws.actualRowCount; r += 1) {
-    const record = readBaselineRow(ws.getRow(r));
+  for (let r = BASELINE_FIRST_DATA_ROW; r <= selected.sheet.actualRowCount; r += 1) {
+    const record = readBaselineRow(selected.sheet.getRow(r), selected.columns);
     if (record) records.push(record);
   }
   return records;

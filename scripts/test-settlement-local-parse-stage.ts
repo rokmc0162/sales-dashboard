@@ -186,6 +186,10 @@ async function main(): Promise<void> {
       toSalesRecords,
     });
     assert.equal(realResult.salesRows.length, 2, "real transformer output must be canonical-stage compatible");
+    assert.equal(realResult.salesRows[0].record.clients, "synthetic", "stage retains workbook client code");
+    assert.equal(realResult.salesRows[0].record.channel, "synthetic", "stage retains workbook channel code");
+    assert.equal(realResult.salesRows[0].record.client_code, "synthetic", "stage retains canonical client code");
+    assert.equal(realResult.salesRows[0].record.channel_code, "synthetic", "stage retains canonical channel code");
 
     const duplicateRows = await fixture(); created.push(duplicateRows.root);
     await expectCode(() => buildLocalParseStage({ snapshotDir: duplicateRows.root, entries: duplicateRows.entries, settlementMonth: "2026-07-01", lookups: emptyLookupMaps(), ...dependencies({ rows: [raw("a"), raw("b")] }) }), "INVALID_STAGE_VALUE");

@@ -372,11 +372,15 @@ export async function parsePiccoma({
   filename: string;
   buffer: Buffer;
 }): Promise<ParseResult> {
-  const isSummary = /^取次report_株式会社RIVERSE_/.test(filename);
-  const isDetail = /^出版社report_株式会社RIVERSE_/.test(filename);
+  // Immutable source snapshots pass folder-prefixed display paths. File-role
+  // and month contracts belong to the basename; matching the whole path routes
+  // 出版社report through the unrelated summary matrix parser.
+  const sourceName = path.basename(filename);
+  const isSummary = /^取次report_株式会社RIVERSE_/.test(sourceName);
+  const isDetail = /^出版社report_株式会社RIVERSE_/.test(sourceName);
 
   if (isDetail) {
-    const detailOnly = recordsFromDetailOnly(filename, buffer);
+    const detailOnly = recordsFromDetailOnly(sourceName, buffer);
     return {
       platform_code: "piccoma",
       sales_month: detailOnly.salesMonth,
@@ -393,7 +397,7 @@ export async function parsePiccoma({
   }
 
   const { salesMonth, rows } = parseSummarySheet(buffer);
-  const detail = tryLoadDetail(filename, buffer);
+  const detail = tryLoadDetail(sourceName, buffer);
 
   const settlementMonth = salesMonth ? addMonth(salesMonth) : null;
   const depositMonth = settlementMonth ? addMonth(settlementMonth) : null;

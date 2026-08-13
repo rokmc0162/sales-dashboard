@@ -27,7 +27,8 @@ function canonicalJson(value: unknown): string {
 function sha(bytes: Buffer): string { return createHash("sha256").update(bytes).digest("hex"); }
 function record(note2: string | null, title: string): SalesRecordInsert {
   return {
-    title_jp: title, note2, company: "SYN", sales_month: "2026-07-01",
+    title_jp: title, channel_title_jp: title, channel: "synthetic", clients: "synthetic-client",
+    note2, company: "SYN", sales_month: "2026-07-01",
     settlement_month: "2026-07-01", settlement_batch: "2026-07-01", country: "JP",
     type: "WT", distribution_strategy: "non-ex", settlement_currency: "JPY",
     vehicle_currency: "KRW", total_amount_jpy: 1, fee_jpy: 0, before_tax_jpy: 1,
@@ -57,6 +58,8 @@ async function workbookBuffer(first = "first", second = "second"): Promise<Buffe
   for (let row = 2; row < 6; row += 1) sheet.addRow([]);
   sheet.addRow([null, null, null, first]);
   sheet.addRow([null, null, null, second]);
+  sheet.getCell("P6").value = "synthetic";
+  sheet.getCell("P7").value = "synthetic";
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 async function workbookWithFormula(includeFormula: boolean): Promise<Buffer> {
@@ -65,6 +68,8 @@ async function workbookWithFormula(includeFormula: boolean): Promise<Buffer> {
   for (let row = 1; row < 6; row += 1) sheet.addRow([]);
   sheet.addRow([null, null, null, "first"]);
   sheet.addRow([null, null, null, "second"]);
+  sheet.getCell("P6").value = "synthetic";
+  sheet.getCell("P7").value = "synthetic";
   if (includeFormula) {
     sheet.getCell("E6").value = { formula: "1+1", result: 2 };
     sheet.getCell("E7").value = { formula: "2+2", result: 4 };
@@ -216,14 +221,27 @@ async function main(): Promise<void> {
     await reopenedPublished.xlsx.load(publishedBytes as unknown as ExcelJS.Buffer);
     const inputSheet = reopenedPublished.worksheets.find((sheet) => /^input_電子_/.test(sheet.name));
     assert.ok(inputSheet, "published workbook must retain the generated INPUT sheet");
+    assert.equal(reopenedPublished.worksheets.some((sheet) => /(?:함수\s*참고용|関数\s*参考用)/i.test(sheet.name)), false,
+      "published workbook must omit the broken external-reference helper sheet");
     assert.equal(inputSheet.getRow(6).getCell(4).text, "first");
     assert.equal(inputSheet.getRow(7).getCell(4).text, "second");
     const publishedZip = await JSZip.loadAsync(publishedBytes, { checkCRC32: true });
+    const workbookXml = await publishedZip.file("xl/workbook.xml")?.async("string");
+    assert.ok(workbookXml, "published workbook must retain workbook metadata");
+    assert.doesNotMatch(workbookXml, /함수\s*참고용|関数\s*参考用/i,
+      "published workbook metadata must not reference the removed helper sheet");
+    const subtotalFormula = (column: string) => inputSheet.getCell(`${column}1`).formula;
+    for (const column of ["U", "AD", "BN", "BU"]) {
+      assert.equal(subtotalFormula(column), `SUBTOTAL(9,${column}6:${column}7)`,
+        `${column}1 must keep a same-column SUBTOTAL through LibreOffice`);
+    }
     for (const entry of Object.values(publishedZip.files)) {
       if (!/^xl\/worksheets\/sheet\d+[.]xml$/.test(entry.name)) continue;
       const xml = await entry.async("string");
       assert.doesNotMatch(xml, /<f[^>]*t="array"[^>]*ref="([A-Z]+3)"[^>]*>[^<]*_xludf[.]XLOOKUP\([^<]*#ref!/i,
         `${entry.name} must not contain the known dead single-cell array lookup`);
+      assert.doesNotMatch(xml, /<f[^>]*>[^<]*#ref!/i,
+        `${entry.name} must not contain broken formula references`);
     }
     const realReplay = await generateLocalWorkbookArtifact({
       stage: stage(), workRoot: path.join(root, "real-pipeline"), runId: "run-real",
@@ -233,6 +251,19 @@ async function main(): Promise<void> {
     assert.equal(realReplay.evidence.workbookArchiveDigest, realPipeline.evidence.workbookArchiveDigest);
 
     const blankBuffer = await workbookBuffer("", "");
+    await expectCode(() => generateLocalWorkbookArtifact({
+      ...deps,
+      runId: "numeric-only-source-title",
+      stage: (() => {
+        const numeric = stage();
+        numeric.salesRows[1].record.title_jp = "1";
+        numeric.salesRows[1].record.channel_title_jp = "1";
+        const body = { ...numeric };
+        delete (body as Partial<LocalParseStageResult>).digest;
+        numeric.digest = sha(Buffer.from(canonicalJson(body), "utf8"));
+        return numeric;
+      })(),
+    }), "INVALID_STAGE");
     await expectCode(() => generateLocalWorkbookArtifact({
       ...deps,
       runId: "blank-rendered-data",

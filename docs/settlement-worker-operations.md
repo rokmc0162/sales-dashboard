@@ -110,6 +110,21 @@ launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.riverse.settlem
 
 After stopping, remove the plist only if the service is intentionally being uninstalled. Re-running the installer restores and starts it.
 
+## Immutable version retry rollout
+
+Migration `037_settlement_version_job_retry.sql` adds the service-role-only `retry_settlement_version_job` RPC. It requeues one terminal immutable-version job without changing its source version, frozen file bindings, existing processing runs, publications, or current-month pointer. The next normal worker claim rotates the claim token, increments `attempt_count`, and creates a fresh processing run.
+
+Use this order:
+
+1. Keep the worker queue idle and record the target job status/attempt, active-run count, current publication ID, and existing run/publication counts.
+2. Apply migration 037 once. Confirm `anon` and `authenticated` cannot execute the RPC and `service_role` can.
+3. Run two-session smoke checks for concurrent retry and retry-vs-claim. The advisory/job locks must serialize them; only one retry may reach `queued`, and no active duplicate run may appear.
+4. Call the RPC once for the intended immutable source version. Immediately confirm the same job ID/source binding remains, the old runs/publications/current pointer remain, and only mutable job/file progress is reset.
+5. Let the installed worker claim it. Confirm `attempt_count` increments exactly once, a new run receives a new claim token, and the prior published run remains immutable.
+6. Treat the migration and retry as roll-forward operations. Dropping the function after it has been called does **not** restore job/file state, remove its append-only audit row, or undo a newly claimed run. If processing fails after retry, repair forward through the fenced lifecycle; do not attempt schema-only rollback.
+
+Before the single real retry, behavior and concurrency probes must run inside explicit transactions that end in `ROLLBACK`. Never use a fake immutable version or publication for Production smoke testing.
+
 ## Failure handling
 
 - SIGTERM/SIGINT waits for the current safe checkpoint and immediately requeues the job when no file is `processing`.

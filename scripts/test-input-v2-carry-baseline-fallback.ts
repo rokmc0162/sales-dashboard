@@ -30,6 +30,9 @@ async function buildWorkbook(
   // Real baselines have 5 header rows before the first data row; they also
   // keep ExcelJS's actualRowCount covering the data range.
   for (let r = 1; r <= 5; r += 1) ws.getRow(r).getCell(1).value = `header ${r}`;
+  ws.getRow(4).getCell(1).value = "Unique Identifier";
+  ws.getRow(4).getCell(COL.channel).value = "Channel";
+  ws.getRow(4).getCell(COL.type).value = "Type";
   rows.forEach((row, i) => {
     const r = ws.getRow(6 + i);
     for (const [field, col] of Object.entries(COL)) {
@@ -95,7 +98,7 @@ async function main() {
     ]);
     await assert.rejects(
       () => loadCarryForwardBaselineRowsFromBuffer(buffer),
-      /input_電子/,
+      /electronic INPUT sheet|ambiguous or missing/,
       "workbook without the electronic INPUT sheet is rejected",
     );
   }

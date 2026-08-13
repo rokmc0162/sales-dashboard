@@ -217,6 +217,7 @@ function cloneStyle(style: Partial<ExcelJS.Style> | undefined): Partial<ExcelJS.
  * while its clones remain breaks ExcelJS serialization.
  */
 const DEAD_XLOOKUP_FORMULA_RE = /_xludf[.]XLOOKUP\([^)]*#REF!/i;
+const REFERENCE_ONLY_SHEET_RE = /(?:함수\s*참고용|関数\s*参考用)/i;
 
 function dropBrokenTemplateFormulas(wb: ExcelJS.Workbook) {
   for (const ws of wb.worksheets) {
@@ -230,6 +231,24 @@ function dropBrokenTemplateFormulas(wb: ExcelJS.Workbook) {
       if (formula && formulaValue.ref === cell.address
           && DEAD_XLOOKUP_FORMULA_RE.test(formula)) cell.value = null;
     });
+  }
+}
+
+function dropReferenceOnlySheets(wb: ExcelJS.Workbook) {
+  const removedNames = wb.worksheets
+    .filter((ws) => REFERENCE_ONLY_SHEET_RE.test(ws.name))
+    .map((ws) => ws.name);
+  const removedNameSet = new globalThis.Set<string>(removedNames);
+  wb.definedNames.model = wb.definedNames.model.filter((definedName) =>
+    definedName.ranges.every((range) => {
+      const bang = range.indexOf("!");
+      if (bang < 0) return true;
+      const sheetName = range.slice(0, bang).replace(/^'|'$/g, "").replace(/''/g, "'");
+      return !removedNameSet.has(sheetName);
+    }),
+  );
+  for (const ws of [...wb.worksheets]) {
+    if (REFERENCE_ONLY_SHEET_RE.test(ws.name)) wb.removeWorksheet(ws.id);
   }
 }
 
@@ -402,12 +421,13 @@ function stretchSubtotalRanges(ws: ExcelJS.Worksheet, finalRow: number, maxCol: 
   const safeFinal = Math.max(finalRow, FIRST_DATA_ROW);
   for (let c = 1; c <= maxCol; c++) {
     const cell = row.getCell(c);
-    const val = cell.value;
-    if (!val || typeof val !== "object" || !("formula" in val)) continue;
-    const formula = (val as ExcelJS.CellFormulaValue).formula;
+    const formula = cell.formula;
     if (!formula || !/SUBTOTAL\(9,/i.test(formula)) continue;
+    const column = cell.address.replace(/\d+$/, "");
     cell.value = {
-      formula: formula.replace(
+      formula: /#REF!/i.test(formula)
+        ? `SUBTOTAL(9,${column}${FIRST_DATA_ROW}:${column}${safeFinal})`
+        : formula.replace(
         /([A-Z]+)(\d+):([A-Z]+)\d+/g,
         (_m, col1, start, col2) => `${col1}${start}:${col2}${safeFinal}`,
       ),
@@ -470,6 +490,7 @@ export async function fillInputV2Template(opts: InputV2FillOptions): Promise<Inp
   const templateBuffer = await readFile(templatePath);
   await wb.xlsx.load(templateBuffer as unknown as ExcelJS.Buffer);
   dropBrokenTemplateFormulas(wb);
+  dropReferenceOnlySheets(wb);
 
   let electronicSheet = wb.getWorksheet(effectiveSplit.electronicSheet);
   const publicationSheet = wb.getWorksheet(effectiveSplit.publicationSheet);

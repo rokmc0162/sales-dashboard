@@ -27,12 +27,13 @@ export class LocalWorkbookArtifactError extends Error {
 }
 export type WorkbookShape = { sheetCount: number; rowCount: number };
 export type OfficeVerification = { verifier: "libreoffice" | "injected"; version: string; reopened: WorkbookShape; archiveDigest: string };
-type OfficeVerificationResult = OfficeVerification & { verifiedWorkbook: Buffer };
+export type OfficeVerificationResult = OfficeVerification & { verifiedWorkbook: Buffer };
 export type LocalWorkbookEvidence = {
   schemaVersion: 1; stageDigest: string; settlementMonth: string; detailRows: number;
   workbookSha256: string; workbookArchiveDigest: string; workbookSizeBytes: number;
   officeWorkbookSha256: string; officeWorkbookSizeBytes: number;
   reopened: WorkbookShape; office: OfficeVerification;
+  baselineMonth: string | null; baselinePublicationId: string | null; baselineSha256: string | null;
 };
 export type LocalWorkbookArtifactResult = {
   artifactDir: string; candidatePath: string; officePath: string; evidencePath: string;
@@ -123,6 +124,33 @@ function hasIdentityValue(value: ExcelJS.CellValue): boolean {
   return true;
 }
 
+function businessTitle(value: ExcelJS.CellValue): string | null {
+  if (!hasIdentityValue(value)) return null;
+  let text = "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    text = String(value).trim();
+  } else if (value instanceof Date) {
+    return null;
+  } else if (value && typeof value === "object") {
+    const result = "result" in value ? value.result : undefined;
+    if (typeof result === "string" || typeof result === "number") text = String(result).trim();
+    else if ("richText" in value && Array.isArray(value.richText)) {
+      text = value.richText.map((part) => part.text).join("").trim();
+    }
+  }
+  const normalized = text.normalize("NFKC").trim();
+  if (!normalized || /^[+-]?(?:(?:\d{1,3}(?:,\d{3})+)|\d+)(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(normalized)) return null;
+  return text;
+}
+
+function assertSourceBusinessIdentity(records: Record<string, unknown>[]): void {
+  for (const record of records) {
+    const channel = String(record.channel ?? record.channel_code ?? "").normalize("NFKC").trim();
+    const title = businessTitle(String(record.channel_title_jp ?? record.title_jp ?? ""));
+    if (!channel || !title) fail("INVALID_STAGE");
+  }
+}
+
 function assertFillCounts(filled: InputV2FillResult, expectedRows: number): void {
   const counts = [filled.rows_written, filled.electronic_rows, filled.publication_rows];
   if (!counts.every((value) => Number.isSafeInteger(value) && value >= 0)
@@ -148,15 +176,17 @@ async function inspectRenderedWorkbook(buffer: Buffer, filled: InputV2FillResult
     let rendered = 0;
     for (let offset = 0; offset < check.expected; offset += 1) {
       const row = sheet.getRow(INPUT_V2_FIRST_DATA_ROW + offset);
-      if ([check.columns.unique_identifier, check.columns.channel_title_jp,
-        check.columns.title_kr, check.columns.title_jp]
-        .some((column) => hasIdentityValue(row.getCell(column).value))) rendered += 1;
+      const channel = businessTitle(row.getCell(check.columns.channel).value);
+      const primaryValue = row.getCell(check.columns.channel_title_jp).value;
+      const primaryTitle = businessTitle(primaryValue);
+      const fallbackTitle = businessTitle(row.getCell(check.columns.title_jp).value);
+      if (hasIdentityValue(primaryValue) && !primaryTitle) fail("WORKBOOK_FAILED");
+      const title = primaryTitle ?? fallbackTitle;
+      if (channel && title) rendered += 1;
       row.eachCell({ includeEmpty: false }, (cell) => {
         const value = cell.value;
         if (!value || typeof value !== "object") return;
-        const formula = "formula" in value
-          ? value.formula
-          : "sharedFormula" in value ? value.sharedFormula : undefined;
+        const formula = cell.formula;
         if (typeof formula === "string") formulas.push(`${sheet.name}!${cell.address}=${formula}`);
       });
     }
@@ -239,9 +269,10 @@ function freezeStage(stageInput: LocalParseStageResult): { stage: LocalParseStag
     .map((row) => cloneCanonical(row.record as Record<string, unknown>))
     .filter((record) => !String(record.note2 ?? "").includes("SUMMARY_NON_AGGREGATED"));
   if (records.length < 1) fail("INVALID_STAGE");
+  assertSourceBusinessIdentity(records);
   return { stage, records };
 }
-function evidenceMatchesStored(value: unknown, stage: LocalParseStageResult, detailRows: number, candidate: Buffer, checked: { archiveDigest: string; reopened: WorkbookShape }): value is LocalWorkbookEvidence {
+function evidenceMatchesStored(value: unknown, stage: LocalParseStageResult, detailRows: number, candidate: Buffer, checked: { archiveDigest: string; reopened: WorkbookShape }, baseline: { month: string; publicationId: string | null; sha256: string } | null): value is LocalWorkbookEvidence {
   if (!value || typeof value !== "object") return false;
   const row = value as Partial<LocalWorkbookEvidence>;
   const office = row.office;
@@ -255,19 +286,39 @@ function evidenceMatchesStored(value: unknown, stage: LocalParseStageResult, det
     && typeof office.version === "string" && office.version.length > 0 && office.version.length <= 200
     && Number.isInteger(office.reopened?.sheetCount) && (office.reopened?.sheetCount ?? 0) > 0
     && Number.isInteger(office.reopened?.rowCount) && (office.reopened?.rowCount ?? 0) > 0
-    && SHA256_RE.test(office.archiveDigest ?? "");
+    && SHA256_RE.test(office.archiveDigest ?? "")
+    && row.baselineMonth === (baseline?.month ?? null)
+    && row.baselinePublicationId === (baseline?.publicationId ?? null)
+    && row.baselineSha256 === (baseline?.sha256 ?? null);
 }
 
 export async function generateLocalWorkbookArtifact(input: {
   stage: LocalParseStageResult; workRoot: string; runId: string; fillWorkbook: FillWorkbook;
   validateWorkbook: ValidateWorkbook; archiveDigest: ArchiveDigest; officeVerifier?: OfficeVerifier;
+  preparedRecords?: Record<string, unknown>[];
+  baselineEvidence?: { month: string; publicationId: string | null; sha256: string };
 }): Promise<LocalWorkbookArtifactResult> {
   try {
     if (!input || !SAFE_ID_RE.test(input.runId) || typeof input.fillWorkbook !== "function" || typeof input.validateWorkbook !== "function" || typeof input.archiveDigest !== "function") fail("INVALID_INPUT");
     const runId = String(input.runId); const workRoot = String(input.workRoot);
     const fillWorkbook = input.fillWorkbook; const validateWorkbook = input.validateWorkbook; const archiveDigest = input.archiveDigest;
     const officeVerifier = input.officeVerifier ?? ((args: Parameters<OfficeVerifier>[0]) => verifyWorkbookWithLibreOffice(args));
-    const frozen = freezeStage(input.stage); const month = frozen.stage.settlementMonth.slice(0, 7).replace("-", "");
+    const frozen = freezeStage(input.stage);
+    let records = frozen.records;
+    if (input.preparedRecords !== undefined) {
+      if (!Array.isArray(input.preparedRecords) || input.preparedRecords.length < 1) fail("INVALID_INPUT");
+      try { records = cloneCanonical(input.preparedRecords); } catch { fail("INVALID_INPUT"); }
+      records.forEach((record) => {
+        if (!record || typeof record !== "object" || Array.isArray(record)) fail("INVALID_INPUT");
+      });
+      assertSourceBusinessIdentity(records);
+      if (!input.baselineEvidence || !/^\d{4}-(0[1-9]|1[0-2])-01$/.test(input.baselineEvidence.month)
+          || !SHA256_RE.test(input.baselineEvidence.sha256)) fail("INVALID_INPUT");
+    } else if (input.baselineEvidence !== undefined) {
+      fail("INVALID_INPUT");
+    }
+    const baselineEvidence = input.baselineEvidence ?? null;
+    const month = frozen.stage.settlementMonth.slice(0, 7).replace("-", "");
     const root = await privateDirectory(path.resolve(workRoot));
     const runDir = await privateDirectory(path.join(await privateDirectory(path.join(root, "runs")), runId));
     const artifactDir = path.join(runDir, "artifact");
@@ -284,9 +335,9 @@ export async function generateLocalWorkbookArtifact(input: {
     if (names.includes(CANDIDATE_NAME)) {
       candidate = await readPrivateFile(candidatePath, MAX_XLSX_BYTES);
       let retryFill: InputV2FillResult;
-      try { retryFill = await fillWorkbook({ month, records: cloneCanonical(frozen.records) }); } catch { fail("WORKBOOK_FAILED"); }
+      try { retryFill = await fillWorkbook({ month, records: cloneCanonical(records) }); } catch { fail("WORKBOOK_FAILED"); }
       const retryBytes = Buffer.from(retryFill.buffer);
-      assertFillCounts(retryFill, frozen.records.length);
+      assertFillCounts(retryFill, records.length);
       if (retryBytes.byteLength < 1 || retryBytes.byteLength > MAX_XLSX_BYTES) fail("WORKBOOK_FAILED");
       const retryFormulaSignature = await inspectRenderedWorkbook(retryBytes, retryFill);
       expectedFill = retryFill;
@@ -298,9 +349,9 @@ export async function generateLocalWorkbookArtifact(input: {
       if (candidateFormulaSignature !== retryFormulaSignature) fail("ARTIFACT_CHANGED");
     } else {
       let filled: InputV2FillResult;
-      try { filled = await fillWorkbook({ month, records: cloneCanonical(frozen.records) }); } catch { fail("WORKBOOK_FAILED"); }
+      try { filled = await fillWorkbook({ month, records: cloneCanonical(records) }); } catch { fail("WORKBOOK_FAILED"); }
       const generated = Buffer.from(filled.buffer);
-      assertFillCounts(filled, frozen.records.length);
+      assertFillCounts(filled, records.length);
       if (generated.byteLength < 1 || generated.byteLength > MAX_XLSX_BYTES) fail("WORKBOOK_FAILED");
       candidateFormulaSignature = await inspectRenderedWorkbook(generated, filled);
       expectedFill = filled;
@@ -327,7 +378,7 @@ export async function generateLocalWorkbookArtifact(input: {
       const officeChecked = await validateBytes(officeWorkbook, archiveDigest, validateWorkbook).catch(() => fail("ARTIFACT_CHANGED"));
       const evidenceBytes = await readPrivateFile(evidencePath, MAX_EVIDENCE_BYTES);
       let evidence: unknown; try { evidence = JSON.parse(evidenceBytes.toString("utf8")); } catch { fail("ARTIFACT_CHANGED"); }
-      if (!evidenceMatchesStored(evidence, frozen.stage, frozen.records.length, candidate, checked)) fail("ARTIFACT_CHANGED");
+      if (!evidenceMatchesStored(evidence, frozen.stage, records.length, candidate, checked, baselineEvidence)) fail("ARTIFACT_CHANGED");
       if (evidence.office.archiveDigest !== officeChecked.archiveDigest
         || evidence.officeWorkbookSha256 !== sha256(officeWorkbook)
         || evidence.officeWorkbookSizeBytes !== officeWorkbook.byteLength
@@ -382,9 +433,12 @@ export async function generateLocalWorkbookArtifact(input: {
     if (!stableCandidate.equals(candidate)) fail("ARTIFACT_CHANGED");
     const evidence: LocalWorkbookEvidence = {
       schemaVersion: 1, stageDigest: frozen.stage.digest, settlementMonth: frozen.stage.settlementMonth,
-      detailRows: frozen.records.length, workbookSha256: sha256(candidate), workbookArchiveDigest: checked.archiveDigest,
+      detailRows: records.length, workbookSha256: sha256(candidate), workbookArchiveDigest: checked.archiveDigest,
       workbookSizeBytes: candidate.byteLength, officeWorkbookSha256: sha256(storedOffice),
       officeWorkbookSizeBytes: storedOffice.byteLength, reopened: checked.reopened, office: cloneCanonical(office),
+      baselineMonth: baselineEvidence?.month ?? null,
+      baselinePublicationId: baselineEvidence?.publicationId ?? null,
+      baselineSha256: baselineEvidence?.sha256 ?? null,
     };
     const evidenceBytes = Buffer.from(canonicalJson(evidence), "utf8");
     const tempEvidence = path.join(runDir, `.evidence-${randomUUID()}.json`);
@@ -395,7 +449,7 @@ export async function generateLocalWorkbookArtifact(input: {
     finally { await fsp.rm(tempEvidence, { force: true }).catch(() => {}); }
     const stored = await readPrivateFile(evidencePath, MAX_EVIDENCE_BYTES);
     let parsed: unknown; try { parsed = JSON.parse(stored.toString("utf8")); } catch { fail("ARTIFACT_CHANGED"); }
-    if (!evidenceMatchesStored(parsed, frozen.stage, frozen.records.length, candidate, checked)) fail("ARTIFACT_CHANGED");
+    if (!evidenceMatchesStored(parsed, frozen.stage, records.length, candidate, checked, baselineEvidence)) fail("ARTIFACT_CHANGED");
     const finalCandidate = await readPrivateFile(candidatePath, MAX_XLSX_BYTES);
     if (!finalCandidate.equals(candidate)) fail("ARTIFACT_CHANGED");
     return { artifactDir, candidatePath, officePath, evidencePath, evidence: parsed, reused: !createdCandidate };

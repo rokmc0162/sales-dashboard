@@ -4,6 +4,11 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 
 import type { LookupMaps, TransformContext, TransformResult } from "../aggregation/to-sales-records";
+import {
+  dedupePiccomaStatementDuplicates,
+  piccomaSourceRoleFromFilename,
+  type PiccomaSourceRole,
+} from "../aggregation/strict-record-key";
 import { canonicalizeIntakePath, MAX_INTAKE_FILES, MAX_INTAKE_FILE_BYTES, MAX_INTAKE_TOTAL_BYTES } from "../intake/contract";
 import type { ParseResult } from "../schema/sales";
 import type { SalesRecordInsert } from "../supabase/types";
@@ -53,11 +58,19 @@ export type LocalParseRawRow = {
   data: Record<string, unknown>;
 };
 
+export type LocalParseStageRecord = SalesRecordInsert & {
+  /** Display/business codes retained for workbook generation; DB inserts use IDs. */
+  clients?: string | null;
+  channel?: string | null;
+  client_code?: string | null;
+  channel_code?: string | null;
+};
+
 export type LocalParseSalesRow = {
   objectId: string;
   position: number;
   sourceOrdinal: number;
-  record: SalesRecordInsert;
+  record: LocalParseStageRecord;
 };
 
 export type LocalParseStageResult = {
@@ -69,6 +82,61 @@ export type LocalParseStageResult = {
   counts: { files: number; rawRows: number; salesRows: number; summaryFiles: number };
   digest: string;
 };
+
+function reconcilePiccomaCompanions(
+  rows: LocalParseSalesRow[],
+  files: LocalParseFileResult[],
+): LocalParseSalesRow[] {
+  const roles = new Map<string, PiccomaSourceRole>();
+  for (const file of files) {
+    if (file.platformCode !== "piccoma") continue;
+    const role = piccomaSourceRoleFromFilename(file.displayPath);
+    if (role) roles.set(file.objectId, role);
+  }
+  if (![...roles.values()].includes("publisher_detail")
+      || ![...roles.values()].includes("broker_summary")) return rows;
+
+  type Tagged = SalesRecordInsert & {
+    upload_id: string;
+    __position: number;
+    __sourceOrdinal: number;
+  };
+  const tagged: Tagged[] = rows.map((row) => ({
+    ...cloneCanonical(row.record),
+    upload_id: row.objectId,
+    __position: row.position,
+    __sourceOrdinal: row.sourceOrdinal,
+  }));
+  return dedupePiccomaStatementDuplicates(tagged, roles).records.map((taggedRow) => {
+    const { upload_id, __position, __sourceOrdinal, ...record } = taggedRow;
+    return {
+      objectId: upload_id,
+      position: __position,
+      sourceOrdinal: __sourceOrdinal,
+      record: record as SalesRecordInsert,
+    };
+  });
+}
+
+function displayCode(data: Record<string, unknown>, primary: string, fallback: string): string | null {
+  const value = data[primary] ?? data[fallback];
+  if (typeof value !== "string") return null;
+  const normalized = value.normalize("NFKC").trim();
+  return normalized || null;
+}
+
+function retainWorkbookBusinessCodes(
+  record: SalesRecordInsert,
+  source: ParseResult["records"][number],
+): LocalParseStageRecord {
+  const clientCode = displayCode(source.data, "client_code", "clients");
+  const channelCode = displayCode(source.data, "channel_code", "channel");
+  return {
+    ...record,
+    ...(clientCode ? { clients: clientCode, client_code: clientCode } : {}),
+    ...(channelCode ? { channel: channelCode, channel_code: channelCode } : {}),
+  };
+}
 
 type ParseFile = (input: { filename: string; buffer: Buffer; folderName?: string }) =>
   Promise<ParseResult & { detection_confidence: number }>;
@@ -298,20 +366,26 @@ export async function buildLocalParseStage(input: BuildLocalParseStageInput): Pr
       warningCodes: [],
     });
     parsed.records.forEach((row) => rawRows.push({ objectId: entry.objectId, position: entry.position, rowIndex: row.row_index, data: cloneCanonical(row.data) }));
-    transformed.inserts.forEach((record, sourceOrdinal) => salesRows.push({ objectId: entry.objectId, position: entry.position, sourceOrdinal, record: cloneCanonical(record) }));
+    transformed.inserts.forEach((record, sourceOrdinal) => salesRows.push({
+      objectId: entry.objectId,
+      position: entry.position,
+      sourceOrdinal,
+      record: cloneCanonical(retainWorkbookBusinessCodes(record, parsed.records[sourceOrdinal])),
+    }));
   }
 
   const finalRootStat = await fsp.lstat(absoluteRoot).catch(() => fail("SOURCE_CHANGED"));
   if (finalRootStat.dev !== rootStat.dev || finalRootStat.ino !== rootStat.ino) fail("SOURCE_CHANGED");
   const finalFiles = await listSnapshotFiles(path.join(absoluteRoot, "files"));
   if (canonicalJson(finalFiles) !== canonicalJson(expectedFiles)) fail("SOURCE_CHANGED");
+  const reconciledSalesRows = reconcilePiccomaCompanions(salesRows, files);
   const body = {
     schemaVersion: 1 as const,
     settlementMonth,
     files,
     rawRows,
-    salesRows,
-    counts: { files: files.length, rawRows: rawRows.length, salesRows: salesRows.length, summaryFiles: files.filter((file) => file.summaryOnly).length },
+    salesRows: reconciledSalesRows,
+    counts: { files: files.length, rawRows: rawRows.length, salesRows: reconciledSalesRows.length, summaryFiles: files.filter((file) => file.summaryOnly).length },
   };
   const digest = createHash("sha256").update(canonicalJson(body)).digest("hex");
   return { ...body, digest };
