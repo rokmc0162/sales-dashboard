@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 
 import { fillInputV2Template, type InputV2FillResult } from "../src/features/settlement/lib/export/input-v2-filler";
 import type { SalesRecordInsert } from "../src/features/settlement/lib/supabase/types";
@@ -53,8 +54,9 @@ async function workbookBuffer(first = "first", second = "second"): Promise<Buffe
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("INPUT");
   sheet.addRow(["title"]);
-  sheet.addRow([first]);
-  sheet.addRow([second]);
+  for (let row = 2; row < 6; row += 1) sheet.addRow([]);
+  sheet.addRow([null, null, null, first]);
+  sheet.addRow([null, null, null, second]);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 async function expectCode(run: () => Promise<unknown>, code: LocalWorkbookArtifactErrorCode): Promise<void> {
@@ -197,12 +199,38 @@ async function main(): Promise<void> {
     assert.ok(realPipeline.evidence.reopened.sheetCount >= 1);
     assert.ok(realPipeline.evidence.reopened.rowCount >= 1);
     assert.equal((await fsp.readFile(realPipeline.candidatePath)).byteLength, realPipeline.evidence.workbookSizeBytes);
+    const publishedBytes = await fsp.readFile(realPipeline.officePath);
+    const reopenedPublished = new ExcelJS.Workbook();
+    await reopenedPublished.xlsx.load(publishedBytes as unknown as ExcelJS.Buffer);
+    const inputSheet = reopenedPublished.worksheets.find((sheet) => /^input_電子_/.test(sheet.name));
+    assert.ok(inputSheet, "published workbook must retain the generated INPUT sheet");
+    assert.equal(inputSheet.getRow(6).getCell(4).text, "first");
+    assert.equal(inputSheet.getRow(7).getCell(4).text, "second");
+    const publishedZip = await JSZip.loadAsync(publishedBytes, { checkCRC32: true });
+    for (const entry of Object.values(publishedZip.files)) {
+      if (!/^xl\/worksheets\/sheet\d+[.]xml$/.test(entry.name)) continue;
+      const xml = await entry.async("string");
+      assert.doesNotMatch(xml, /<f[^>]*t="array"[^>]*ref="([A-Z]+3)"[^>]*>[^<]*_xludf[.]XLOOKUP\([^<]*#ref!/i,
+        `${entry.name} must not contain the known dead single-cell array lookup`);
+    }
     const realReplay = await generateLocalWorkbookArtifact({
       stage: stage(), workRoot: path.join(root, "real-pipeline"), runId: "run-real",
       fillWorkbook: fillInputV2Template, validateWorkbook: validateSettlementWorkbook, archiveDigest: xlsxArchiveDigest,
     });
     assert.equal(realReplay.reused, true, "real filler and LibreOffice evidence replay deterministically");
     assert.equal(realReplay.evidence.workbookArchiveDigest, realPipeline.evidence.workbookArchiveDigest);
+
+    const blankBuffer = await workbookBuffer("", "");
+    await expectCode(() => generateLocalWorkbookArtifact({
+      ...deps,
+      runId: "blank-rendered-data",
+      fillWorkbook: async ({ records }) => ({
+        buffer: blankBuffer, fill_ms: 1, rows_written: records.length,
+        electronic_rows: records.length, publication_rows: 0,
+        electronic_sheet: "INPUT", publication_sheet: "INPUT_出版_7月",
+        carry_rows: 0, overlay_rows: 0, append_rows: records.length, drop_rows: 0,
+      }),
+    }), "WORKBOOK_FAILED");
 
     console.log("test-settlement-local-workbook-artifact: all assertions passed");
   } finally {

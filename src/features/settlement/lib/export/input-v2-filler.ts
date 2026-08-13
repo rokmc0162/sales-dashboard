@@ -19,6 +19,10 @@ const DEFAULT_TEMPLATE = new URL(
 
 const FIRST_DATA_ROW = 6;
 
+// Exported: workbook validators check that a generated INPUT sheet actually
+// carries rows at and below this header boundary.
+export const INPUT_V2_FIRST_DATA_ROW = FIRST_DATA_ROW;
+
 // Exported: the comparison library reads workbooks back with this same
 // column mapping, so filler and comparator can never drift apart.
 export const ELECTRONIC_COL = {
@@ -74,7 +78,7 @@ export const ELECTRONIC_COL = {
   creator_allocation_rate: 56,
 } as const;
 
-const PUBLICATION_COL = {
+export const PUBLICATION_COL = {
   unique_identifier: 1,
   channel_title_jp: 2,
   title_kr: 3,
@@ -198,6 +202,35 @@ function toDate(x: unknown): Date | string | null {
 
 function cloneStyle(style: Partial<ExcelJS.Style> | undefined): Partial<ExcelJS.Style> | undefined {
   return style ? JSON.parse(JSON.stringify(style)) as Partial<ExcelJS.Style> : undefined;
+}
+
+/**
+ * The v3 template still carries Google-Sheets export artifacts: row-3 array
+ * formulas like IF(ISERROR(_xludf.XLOOKUP(A5,#REF!,#REF!)),"",...) on the
+ * electronic sheet and the hidden 함수-참고용 sheet. They are dead (their
+ * lookup ranges were deleted), and the LibreOffice publish round-trip
+ * rewrites them with lowercase #ref!, which desktop Excel cannot parse — it
+ * then strips the sheet's formulas on open ("Removed Records: Formula from
+ * /xl/worksheets/sheetN.xml"). Drop exactly these from every sheet before
+ * filling. Match only the _xludf. marker, never bare #REF!: row-1 SUBTOTAL
+ * shared-formula groups also contain #REF!, and clearing a shared master
+ * while its clones remain breaks ExcelJS serialization.
+ */
+const DEAD_XLOOKUP_FORMULA_RE = /_xludf[.]XLOOKUP\([^)]*#REF!/i;
+
+function dropBrokenTemplateFormulas(wb: ExcelJS.Workbook) {
+  for (const ws of wb.worksheets) {
+    const row = ws.getRow(3);
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const value = cell.value;
+      if (!value || typeof value !== "object" || !("formula" in value)
+          || !("shareType" in value) || value.shareType !== "array") return;
+      const formulaValue = value as ExcelJS.CellFormulaValue & { ref?: string };
+      const formula = formulaValue.formula;
+      if (formula && formulaValue.ref === cell.address
+          && DEAD_XLOOKUP_FORMULA_RE.test(formula)) cell.value = null;
+    });
+  }
 }
 
 function collapseArrayFormulaRanges(formula: string, rowIdx: number): string {
@@ -436,6 +469,7 @@ export async function fillInputV2Template(opts: InputV2FillOptions): Promise<Inp
   const wb = new ExcelJS.Workbook();
   const templateBuffer = await readFile(templatePath);
   await wb.xlsx.load(templateBuffer as unknown as ExcelJS.Buffer);
+  dropBrokenTemplateFormulas(wb);
 
   let electronicSheet = wb.getWorksheet(effectiveSplit.electronicSheet);
   const publicationSheet = wb.getWorksheet(effectiveSplit.publicationSheet);

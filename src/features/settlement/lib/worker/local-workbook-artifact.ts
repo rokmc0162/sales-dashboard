@@ -6,7 +6,9 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import ExcelJS from "exceljs";
 import type { InputV2FillResult } from "../export/input-v2-filler";
+import { ELECTRONIC_COL, INPUT_V2_FIRST_DATA_ROW, PUBLICATION_COL } from "../export/input-v2-filler";
 import type { LocalParseStageResult } from "./local-parse-stage";
 
 const execFileAsync = promisify(execFile);
@@ -104,6 +106,53 @@ async function validateBytes(buffer: Buffer, archiveDigest: ArchiveDigest, valid
     fail("WORKBOOK_FAILED");
   }
   return { archiveDigest: digest, reopened };
+}
+
+function hasIdentityValue(value: ExcelJS.CellValue): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "object") {
+    if ("error" in value) return false;
+    if ("formula" in value || "sharedFormula" in value) {
+      const result = "result" in value ? value.result : undefined;
+      return result !== null && result !== undefined
+        && (typeof result !== "string" || result.trim().length > 0)
+        && !(typeof result === "object" && "error" in result);
+    }
+  }
+  return true;
+}
+
+function assertFillCounts(filled: InputV2FillResult, expectedRows: number): void {
+  const counts = [filled.rows_written, filled.electronic_rows, filled.publication_rows];
+  if (!counts.every((value) => Number.isSafeInteger(value) && value >= 0)
+      || filled.rows_written !== expectedRows
+      || filled.electronic_rows + filled.publication_rows !== filled.rows_written) {
+    fail("WORKBOOK_FAILED");
+  }
+}
+
+async function assertRenderedDetailRows(buffer: Buffer, filled: InputV2FillResult): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  try { await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer); }
+  catch { fail("WORKBOOK_FAILED"); }
+  const checks = [
+    { name: filled.electronic_sheet, expected: filled.electronic_rows, columns: ELECTRONIC_COL },
+    { name: filled.publication_sheet, expected: filled.publication_rows, columns: PUBLICATION_COL },
+  ];
+  for (const check of checks) {
+    if (check.expected === 0) continue;
+    const sheet = workbook.getWorksheet(check.name);
+    if (!sheet) fail("WORKBOOK_FAILED");
+    let rendered = 0;
+    for (let offset = 0; offset < check.expected; offset += 1) {
+      const row = sheet.getRow(INPUT_V2_FIRST_DATA_ROW + offset);
+      if ([check.columns.unique_identifier, check.columns.channel_title_jp,
+        check.columns.title_kr, check.columns.title_jp]
+        .some((column) => hasIdentityValue(row.getCell(column).value))) rendered += 1;
+    }
+    if (rendered !== check.expected) fail("WORKBOOK_FAILED");
+  }
 }
 
 export async function verifyWorkbookWithLibreOffice(input: {
@@ -220,13 +269,16 @@ export async function generateLocalWorkbookArtifact(input: {
     const candidatePath = path.join(artifactDir, CANDIDATE_NAME);
     const officePath = path.join(artifactDir, OFFICE_NAME);
     const evidencePath = path.join(artifactDir, EVIDENCE_NAME);
-    let candidate: Buffer; let createdCandidate = false;
+    let candidate: Buffer; let createdCandidate = false; let expectedFill: InputV2FillResult;
     if (names.includes(CANDIDATE_NAME)) {
       candidate = await readPrivateFile(candidatePath, MAX_XLSX_BYTES);
       let retryFill: InputV2FillResult;
       try { retryFill = await fillWorkbook({ month, records: cloneCanonical(frozen.records) }); } catch { fail("WORKBOOK_FAILED"); }
       const retryBytes = Buffer.from(retryFill.buffer);
-      if (retryFill.rows_written !== frozen.records.length || retryBytes.byteLength < 1 || retryBytes.byteLength > MAX_XLSX_BYTES) fail("WORKBOOK_FAILED");
+      assertFillCounts(retryFill, frozen.records.length);
+      if (retryBytes.byteLength < 1 || retryBytes.byteLength > MAX_XLSX_BYTES) fail("WORKBOOK_FAILED");
+      await assertRenderedDetailRows(retryBytes, retryFill);
+      expectedFill = retryFill;
       const storedCheck = await validateBytes(candidate, archiveDigest, validateWorkbook).catch(() => fail("ARTIFACT_CHANGED"));
       const retryCheck = await validateBytes(retryBytes, archiveDigest, validateWorkbook).catch(() => fail("WORKBOOK_FAILED"));
       if (storedCheck.archiveDigest !== retryCheck.archiveDigest) fail("ARTIFACT_CHANGED");
@@ -234,7 +286,10 @@ export async function generateLocalWorkbookArtifact(input: {
       let filled: InputV2FillResult;
       try { filled = await fillWorkbook({ month, records: cloneCanonical(frozen.records) }); } catch { fail("WORKBOOK_FAILED"); }
       const generated = Buffer.from(filled.buffer);
-      if (filled.rows_written !== frozen.records.length || generated.byteLength < 1 || generated.byteLength > MAX_XLSX_BYTES) fail("WORKBOOK_FAILED");
+      assertFillCounts(filled, frozen.records.length);
+      if (generated.byteLength < 1 || generated.byteLength > MAX_XLSX_BYTES) fail("WORKBOOK_FAILED");
+      await assertRenderedDetailRows(generated, filled);
+      expectedFill = filled;
       await validateBytes(generated, archiveDigest, validateWorkbook);
       const tempPath = path.join(runDir, `.candidate-${randomUUID()}.xlsx`);
       const temp = await fsp.open(tempPath, "wx", 0o600);
@@ -252,6 +307,7 @@ export async function generateLocalWorkbookArtifact(input: {
     if (hadEvidence) {
       if (!(await fsp.readdir(artifactDir)).includes(OFFICE_NAME)) fail("ARTIFACT_CHANGED");
       const officeWorkbook = await readPrivateFile(officePath, MAX_XLSX_BYTES);
+      await assertRenderedDetailRows(officeWorkbook, expectedFill).catch(() => fail("ARTIFACT_CHANGED"));
       const officeChecked = await validateBytes(officeWorkbook, archiveDigest, validateWorkbook).catch(() => fail("ARTIFACT_CHANGED"));
       const evidenceBytes = await readPrivateFile(evidencePath, MAX_EVIDENCE_BYTES);
       let evidence: unknown; try { evidence = JSON.parse(evidenceBytes.toString("utf8")); } catch { fail("ARTIFACT_CHANGED"); }
@@ -264,6 +320,16 @@ export async function generateLocalWorkbookArtifact(input: {
       let currentOffice: OfficeVerificationResult;
       try { currentOffice = await officeVerifier({ buffer: Buffer.from(candidate), workRoot, validateWorkbook, archiveDigest }); }
       catch { fail("OFFICE_FAILED"); }
+      if (!Buffer.isBuffer(currentOffice.verifiedWorkbook)
+          || currentOffice.verifiedWorkbook.byteLength < 1
+          || currentOffice.verifiedWorkbook.byteLength > MAX_XLSX_BYTES) fail("OFFICE_FAILED");
+      await assertRenderedDetailRows(Buffer.from(currentOffice.verifiedWorkbook), expectedFill)
+        .catch(() => fail("OFFICE_FAILED"));
+      const currentOfficeCheck = await validateBytes(Buffer.from(currentOffice.verifiedWorkbook), archiveDigest, validateWorkbook)
+        .catch(() => fail("OFFICE_FAILED"));
+      if (currentOfficeCheck.archiveDigest !== currentOffice.archiveDigest
+          || currentOfficeCheck.reopened.sheetCount !== currentOffice.reopened.sheetCount
+          || currentOfficeCheck.reopened.rowCount !== currentOffice.reopened.rowCount) fail("OFFICE_FAILED");
       if (currentOffice.verifier !== evidence.office.verifier || currentOffice.version !== evidence.office.version
         || currentOffice.reopened.sheetCount !== evidence.office.reopened.sheetCount
         || currentOffice.reopened.rowCount !== evidence.office.reopened.rowCount) fail("ARTIFACT_CHANGED");
@@ -276,6 +342,7 @@ export async function generateLocalWorkbookArtifact(input: {
     const { verifiedWorkbook, ...office } = officeResult;
     if (!Buffer.isBuffer(verifiedWorkbook) || verifiedWorkbook.byteLength < 1 || verifiedWorkbook.byteLength > MAX_XLSX_BYTES
       || !SHA256_RE.test(office.archiveDigest) || office.reopened.sheetCount < 1 || office.reopened.rowCount < 1) fail("OFFICE_FAILED");
+    await assertRenderedDetailRows(Buffer.from(verifiedWorkbook), expectedFill).catch(() => fail("OFFICE_FAILED"));
     const verifiedCheck = await validateBytes(Buffer.from(verifiedWorkbook), archiveDigest, validateWorkbook).catch(() => fail("OFFICE_FAILED"));
     if (verifiedCheck.archiveDigest !== office.archiveDigest || verifiedCheck.reopened.sheetCount !== office.reopened.sheetCount || verifiedCheck.reopened.rowCount !== office.reopened.rowCount) fail("OFFICE_FAILED");
     const tempOffice = path.join(runDir, `.office-${randomUUID()}.xlsx`);
@@ -285,6 +352,7 @@ export async function generateLocalWorkbookArtifact(input: {
     catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
     finally { await fsp.rm(tempOffice, { force: true }).catch(() => {}); }
     const storedOffice = await readPrivateFile(officePath, MAX_XLSX_BYTES);
+    await assertRenderedDetailRows(storedOffice, expectedFill).catch(() => fail("ARTIFACT_CHANGED"));
     const storedOfficeCheck = await validateBytes(storedOffice, archiveDigest, validateWorkbook).catch(() => fail("ARTIFACT_CHANGED"));
     if (storedOfficeCheck.archiveDigest !== office.archiveDigest) fail("ARTIFACT_CHANGED");
     const stableCandidate = await readPrivateFile(candidatePath, MAX_XLSX_BYTES);
