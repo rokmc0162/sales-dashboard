@@ -75,6 +75,11 @@ function main() {
     process.exit(1);
   }
   const errors = collectBundleErrors(config);
+  const binding = linuxBindingEntry(config.architecture);
+  const mapped = config.filePathMap?.[binding];
+  if (typeof mapped !== "string" || path.isAbsolute(mapped) || !fs.existsSync(path.join(root, mapped))) {
+    errors.push(`Linux canvas binding map is not a valid project-relative file: ${binding}`);
+  }
   if (errors.length > 0) {
     for (const error of errors) {
       console.error(`[verify-canvas-vercel-bundle] ${error}`);

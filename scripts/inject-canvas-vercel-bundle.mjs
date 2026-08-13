@@ -19,14 +19,10 @@ export function injectCanvasBinding(root) {
   const relative = linuxBindingEntry(architecture);
   const source = path.join(root, relative);
   if (!fs.existsSync(source)) throw new Error("Linux canvas binding is unavailable after build");
-  const functionDir = path.dirname(configPath);
-  const destination = path.join(functionDir, relative);
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.copyFileSync(source, destination);
   config.filePathMap ??= {};
-  config.filePathMap[relative] = destination;
+  config.filePathMap[relative] = relative;
   fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`, { mode: 0o600 });
-  if (!fs.existsSync(destination) || fs.statSync(destination).size < 1) throw new Error("canvas binding injection failed");
+  if (fs.statSync(source).size < 1) throw new Error("canvas binding injection failed");
   console.log(`[inject-canvas-vercel-bundle] injected ${relative}`);
 }
 

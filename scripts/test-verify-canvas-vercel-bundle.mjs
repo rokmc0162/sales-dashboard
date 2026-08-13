@@ -98,7 +98,8 @@ assert.equal(
     fs.writeFileSync(configPath, JSON.stringify(config));
     injectCanvasBinding(root);
     const injected = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    assert.equal(fs.readFileSync(injected.filePathMap[relative], "utf8"), "synthetic-binding");
+    assert.equal(injected.filePathMap[relative], relative);
+    assert.equal(fs.readFileSync(path.join(root, injected.filePathMap[relative]), "utf8"), "synthetic-binding");
     assert.deepEqual(collectBundleErrors(injected), []);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
