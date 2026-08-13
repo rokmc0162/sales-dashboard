@@ -22,6 +22,12 @@ const nextConfig: NextConfig = {
       './src/features/settlement/data/templates/input_jp_2026_v3_template.xlsx',
     ],
   },
+  // Turbopack can conservatively trace the repository root through the
+  // workbook template loader. Never package local/example environment files
+  // into serverless functions; Production values come from Vercel settings.
+  outputFileTracingExcludes: {
+    '*': ['./.env', './.env.*'],
+  },
   serverExternalPackages: ['exceljs', 'tesseract.js', '@napi-rs/canvas'],
 };
 
