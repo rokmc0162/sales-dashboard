@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type postgres from "postgres";
 import ExcelJS from "exceljs";
+import { slideFormula } from "exceljs/lib/utils/shared-formula";
 
 
 import {
@@ -22,11 +22,6 @@ import type { LocalParseStageResult } from "./local-parse-stage";
 
 const MAX_WORKBOOK_BYTES = 10_000_000;
 const SHA256_RE = /^[0-9a-f]{64}$/;
-const require = createRequire(import.meta.url);
-const { slideFormula } = require("exceljs/lib/utils/shared-formula") as {
-  slideFormula(formula: string, fromCell: string, toCell: string): string;
-};
-
 export class HistoricalLedgerError extends Error {
   constructor() {
     super("HISTORICAL_LEDGER_FAILED");

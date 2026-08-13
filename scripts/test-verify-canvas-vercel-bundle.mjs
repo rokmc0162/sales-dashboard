@@ -10,6 +10,7 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import {
@@ -17,6 +18,7 @@ import {
   hasTraineddataEntry,
   linuxBindingEntry,
 } from "./verify-canvas-vercel-bundle.mjs";
+import { injectCanvasBinding } from "./inject-canvas-vercel-bundle.mjs";
 
 function validConfig(architecture) {
   return {
@@ -82,20 +84,48 @@ assert.equal(
   true,
 );
 
-// Deploy ordering: vendor binding → vercel build → verify bundle → deploy.
+// Injection copies the binding under the function and adds its upload map key.
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "canvas-vercel-inject-"));
+  try {
+    const configPath = path.join(root, ".vercel/output/functions/api/settlement/upload.func/.vc-config.json");
+    const relative = linuxBindingEntry("arm64");
+    const config = validConfig("arm64");
+    delete config.filePathMap[relative];
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+    fs.writeFileSync(path.join(root, relative), "synthetic-binding");
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    injectCanvasBinding(root);
+    const injected = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(fs.readFileSync(injected.filePathMap[relative], "utf8"), "synthetic-binding");
+    assert.deepEqual(collectBundleErrors(injected), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// Deploy ordering: vendor → build → restore → inject → verify → deploy.
 {
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
   const scripts = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).scripts;
   const deploy = scripts.deploy ?? "";
-  const order = [
+  const steps = [
     "ensure-canvas-linux-binding.mjs",
     "vercel build",
+    "ensure-canvas-linux-binding.mjs",
+    "inject-canvas-vercel-bundle.mjs",
     "verify-canvas-vercel-bundle.mjs",
     "vercel deploy",
-  ].map((step) => deploy.indexOf(step));
+  ];
+  let cursor = -1;
+  const order = steps.map((step) => {
+    cursor = deploy.indexOf(step, cursor + 1);
+    return cursor;
+  });
   assert.ok(
-    order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])),
-    "deploy script must run ensure → vercel build → verify → vercel deploy",
+    order.every((i) => i >= 0),
+    "deploy script must run ensure → build → restore → inject → verify → deploy",
   );
 }
 
