@@ -11,11 +11,12 @@ import {
 export const runtime = "nodejs";
 
 /**
- * Freezes the current draft into an immutable submitted version. The RPC is
- * replay-safe: submitting an unchanged draft (same manifest digest) returns
- * the already-created version instead of minting a duplicate, so the
- * response is idempotent for retried requests. No job is enqueued here —
- * queue wiring is migration 030 / Task 4.
+ * Freezes the current draft into an immutable submitted version, then
+ * enqueues it for worker processing. Both RPCs are replay-safe: submitting
+ * an unchanged draft (same manifest digest) returns the already-created
+ * version, and enqueue_settlement_version_job returns the existing job id
+ * for an already-enqueued version — so retried requests converge on the
+ * same version and job_id.
  */
 export async function POST(
   request: Request,
@@ -62,6 +63,23 @@ export async function POST(
     return intakeJson(mapped.body, { status: mapped.status });
   }
 
+  const { data: jobId, error: enqueueError } = await supabase.rpc(
+    "enqueue_settlement_version_job",
+    {
+      p_source_version_id: version.id,
+      p_actor: auth.principal.subject,
+      p_parser_version: null,
+      p_rule_version: null,
+    },
+  );
+  if (enqueueError || typeof jobId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+    // Privacy-safe: no DB details leak; the version is already frozen, so the
+    // client can retry submit and both RPCs converge on the same result.
+    return intakeJson({ error: INTAKE_ERROR.rpcFailed }, { status: 500 });
+  }
+
+  // The immutable version is already durably queued. Response assembly may
+  // fail independently, but a client retry converges on the same version/job.
   const { data: files, error: filesError } = await supabase
     .from("settlement_intake_version_files")
     .select("*")
@@ -72,6 +90,7 @@ export async function POST(
   }
 
   return intakeJson({
+    job_id: jobId,
     version: {
       id: version.id,
       version_no: version.version_no,

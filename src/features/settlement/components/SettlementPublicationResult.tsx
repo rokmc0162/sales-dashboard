@@ -58,24 +58,32 @@ export default function SettlementPublicationResult({
     return () => window.clearInterval(timer);
   }, [latestVersionNo, load, status?.status, status?.versionNo]);
 
-  if (latestVersionNo === null && !status?.currentAvailable) return null;
   const labels = {
     not_submitted: t('제출 대기', '提出待ち'), queued: t('처리 대기', '処理待ち'),
     processing: t('Mac mini 처리 중', 'Mac mini 処理中'), failed: t('확인 필요', '確認が必要'),
     published: t('최종 결과 준비 완료', '最終結果の準備完了'),
   };
-  const current = status?.status ?? 'processing';
+  const current = status?.status
+    ?? (latestVersionNo === null && !status?.currentAvailable ? 'not_submitted' : 'processing');
 
   return (
     <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{t('정산 처리 결과', '精算処理結果')}</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{t('정리된 인풋 Excel', '整理済み入力Excel')}</p>
           <p className="mt-1 flex items-center text-sm font-semibold text-slate-900 dark:text-white">
-            {current === 'published' ? <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" /> : <Loader2 className={`mr-2 h-4 w-4 text-blue-600 ${current === 'failed' ? '' : 'animate-spin'}`} />}
+            {current === 'published' ? <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" /> : <Loader2 className={`mr-2 h-4 w-4 text-blue-600 ${current === 'failed' || current === 'not_submitted' ? '' : 'animate-spin'}`} />}
             {labels[current]}
             {status?.versionNo ? ` · v${status.versionNo}` : ''}
           </p>
+          {latestVersionNo === null && !status?.currentAvailable && (
+            <p className="mt-1 text-xs text-slate-500">
+              {t(
+                '원본 파일이나 폴더를 올리고 [정리 Excel 만들기 시작]을 누르면, 진행 상태와 보기·다운로드 버튼이 여기에 표시됩니다.',
+                '元ファイルまたはフォルダをアップロードして「整理Excel作成を開始」を押すと、進行状況と表示・ダウンロードボタンがここに表示されます。',
+              )}
+            </p>
+          )}
           {status?.currentAvailable && (
             <p className="mt-1 text-xs text-slate-500">
               {current !== 'published' && t(
@@ -96,11 +104,11 @@ export default function SettlementPublicationResult({
             <button type="button" onClick={() => setPreview((value) => !value)}
               className="inline-flex items-center rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700 dark:border-blue-800 dark:text-blue-300">
               {preview ? <ChevronDown className="mr-1.5 h-3.5 w-3.5" /> : <ChevronRight className="mr-1.5 h-3.5 w-3.5" />}
-              {t('정산서 미리보기', '精算書プレビュー')}
+              {t('정리된 Excel 보기', '整理済みExcelを表示')}
             </button>
             <a href={`/api/settlement/publications/${month}/download`} download
               className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
-              <Download className="mr-1.5 h-3.5 w-3.5" />{t('최종 Excel 다운로드', '最終Excelダウンロード')}
+              <Download className="mr-1.5 h-3.5 w-3.5" />{t('정리된 Excel 다운로드', '整理済みExcelをダウンロード')}
             </a>
           </>}
         </div>

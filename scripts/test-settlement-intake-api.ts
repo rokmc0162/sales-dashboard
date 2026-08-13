@@ -115,11 +115,13 @@ async function main() {
       /\/api\/settlement\/upload["'`/]/,
       `${file} must not call the legacy synchronous upload route`,
     );
-    assert.doesNotMatch(
-      source,
-      /enqueueSettlementJob|settlement_jobs|enqueue_settlement_job/,
-      `${file} must not enqueue settlement jobs (queue wiring is a later task)`,
-    );
+    if (file !== ROUTES.submit) {
+      assert.doesNotMatch(
+        source,
+        /enqueueSettlementJob|settlement_jobs|enqueue_settlement_(job|version_job)/,
+        `${file} must not enqueue before immutable version submission`,
+      );
+    }
     assert.doesNotMatch(
       source,
       /google-?drive|resumable/i,
@@ -320,6 +322,14 @@ async function main() {
   assert.match(submit, /expected_draft_revision/, "submit must take the optimistic revision");
   assert.match(submit, /version_no/, "submit must return the immutable version number");
   assert.match(submit, /settlement_intake_version_files/, "submit must return the frozen file snapshot");
+  assert.match(submit, /enqueue_settlement_version_job/, "submit must enqueue the immutable version for worker processing");
+  assert.match(submit, /p_source_version_id:\s*version\.id/, "enqueue must use the exact submitted version id");
+  assert.match(submit, /p_actor:\s*auth\.principal\.subject/, "enqueue must preserve the authenticated actor");
+  assert.match(submit, /job_id:\s*jobId/, "submit response must expose the queued job id");
+  assert.ok(
+    submit.indexOf('"enqueue_settlement_version_job"') < submit.indexOf('.from("settlement_intake_version_files")'),
+    "the immutable version must be queued before response-only frozen file lookup",
+  );
 
   // Stale conflicts must return the current revision so clients can recover.
   for (const name of ["complete", "remove", "reorder", "submit"] as const) {

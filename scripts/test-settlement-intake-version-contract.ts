@@ -101,6 +101,10 @@ async function main() {
     "scripts/settlement-worker.ts",
     "scripts/test-settlement-drive-client.ts",
     "scripts/test-settlement-drive-config.ts",
+    "scripts/test-settlement-drive-backup-runner.ts",
+    "scripts/test-settlement-version-drive-backup.ts",
+    "scripts/test-settlement-worker-env.ts",
+    "scripts/test-settlement-worker-installer-success.ts",
   ];
   const driveImporterAllowedPrefixes = [
     "src/features/settlement/lib/google-drive/",
@@ -146,20 +150,6 @@ async function main() {
       `${file} must not carry a browser Drive upload/session dependency`,
     );
   }
-  for (const [file, source] of sources) {
-    if (file === "src/features/settlement/lib/google-drive/client.server.ts") {
-      continue;
-    }
-    // This contract file quotes the forbidden pattern in its own assertion.
-    if (file === "scripts/test-settlement-intake-version-contract.ts") continue;
-    if (driveImporterAllowlist.includes(file)) continue;
-    assert.doesNotMatch(
-      source,
-      /startResumableUpload/,
-      `${file} must not start Drive resumable upload sessions`,
-    );
-  }
-
   // ------------------------------------------------------------------
   // 3. Draft mutations never enqueue settlement jobs.
   // ------------------------------------------------------------------

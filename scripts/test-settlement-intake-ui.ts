@@ -88,11 +88,22 @@ async function main() {
 
   // ---------------- submit confirmation + version history ----------------
   assert.match(workspace, /window\.confirm\(/, "submit must ask for confirmation");
-  assert.match(workspace, /submitIntakeVersion\(/, "submit must call the submit API");
+  assert.match(workspace, /submitIntakeVersion\(/, "submit must call the submit-and-enqueue API");
+  assert.match(workspace, /정리 작업.*등록|정리.*시작|処理ジョブ.*登録/, "submit success must tell the operator that workbook processing was queued");
   assert.match(workspace, /v\$\{result\.version\.version_no\}|v\{version\.version_no\}/, "the created version number must be shown");
+  assert.match(workspace, /SettlementPublicationResult/, "the intake workspace must render processing, preview, and download status");
+  assert.match(workspace, /정리된 Excel 보기|SettlementPublicationResult/, "the organized workbook result must remain visible from the intake flow");
   assert.match(workspace, /version\.version_no/, "version history must render version numbers");
   assert.match(workspace, /version\.submitted_by/, "version history must show the submitter");
   assert.match(workspace, /새 버전으로 재처리/, "editing after submit must announce reprocessing as a new version");
+
+  assert.match(workspace, /새 인풋 정리 Excel 만들기/, "the primary workspace title must describe the operator's actual goal");
+  assert.match(workspace, /정리 Excel 만들기 시작/, "the primary action must say it creates the organized workbook");
+  assert.ok(
+    workspace.indexOf("<SettlementPublicationResult") < workspace.indexOf("{t('제출된 버전'"),
+    "preview/download processing result must appear before technical version history",
+  );
+  assert.match(clientPage, /기존 방식.*비상용/, "the duplicate legacy upload surface must be labeled as emergency-only");
 
   // ---------------- no legacy pipeline usage ----------------
   for (const [name, source] of [

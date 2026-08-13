@@ -718,7 +718,7 @@ export default function SettlementClient({
 
       <section>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="text-sm font-bold text-slate-950 dark:text-white">{t('2. 파일 올리기', '2. ファイルをアップロード')}</h2>
+          <h2 className="text-sm font-bold text-slate-950 dark:text-white">{t('기존 방식 파일 올리기 (비상용)', '従来方式のファイルアップロード（緊急用）')}</h2>
           <div
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}

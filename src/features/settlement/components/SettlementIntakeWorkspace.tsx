@@ -358,8 +358,8 @@ export default function SettlementIntakeWorkspace({ month }: { month: string }) 
       const result = await submitIntakeVersion(workspace.intake.id, workspace.draft.revision);
       setMessage(
         t(
-          `버전 v${result.version.version_no}이(가) 제출되었습니다. (파일 ${result.version.file_count}개)`,
-          `バージョン v${result.version.version_no} を提出しました。（ファイル${result.version.file_count}件）`,
+          `버전 v${result.version.version_no}이(가) 제출되고 워크북 정리 작업이 등록되었습니다. (파일 ${result.version.file_count}개) Mac mini 처리가 끝나면 아래 처리 결과 영역에 미리보기와 다운로드가 표시됩니다.`,
+          `バージョン v${result.version.version_no} を提出し、ワークブック整理の処理ジョブを登録しました。（ファイル${result.version.file_count}件）Mac mini の処理が完了すると、下の処理結果エリアにプレビューとダウンロードが表示されます。`,
         ),
       );
     } catch (error) {
@@ -383,12 +383,12 @@ export default function SettlementIntakeWorkspace({ month }: { month: string }) 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-bold text-slate-950 dark:text-white">
-            {t('정산 접수함 · 버전 관리', '精算受付ボックス・バージョン管理')}
+            {t('2. 새 인풋 정리 Excel 만들기', '2. 新しい入力整理Excelを作成')}
           </h2>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             {t(
-              '파일을 올려 초안을 만들고, 검토 후 [버전 제출]로 확정합니다. 제출 전에는 처리가 시작되지 않습니다.',
-              'ファイルをアップロードして下書きを作成し、確認後に「バージョン提出」で確定します。提出前は処理が開始されません。',
+              '7월처럼 새로 받은 원본 파일이나 폴더를 올린 뒤 [정리 Excel 만들기 시작]을 누르세요. Mac mini가 파일을 정리해 Excel 미리보기와 다운로드를 만듭니다.',
+              '7月分のような新しい元ファイルまたはフォルダをアップロードし、「整理Excel作成を開始」を押してください。Mac mini が整理し、Excelプレビューとダウンロードを作成します。',
             )}
           </p>
         </div>
@@ -496,7 +496,7 @@ export default function SettlementIntakeWorkspace({ month }: { month: string }) 
             className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-            {t('버전 제출', 'バージョン提出')}
+            {t('정리 Excel 만들기 시작', '整理Excel作成を開始')}
           </button>
         </div>
 
@@ -612,6 +612,8 @@ export default function SettlementIntakeWorkspace({ month }: { month: string }) 
         </p>
       )}
 
+      <SettlementPublicationResult month={month} latestVersionNo={versions[0]?.version_no ?? null} />
+
       <div className="mt-6">
         <h3 className="flex items-center text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           <History className="mr-1.5 h-3.5 w-3.5" />
@@ -659,7 +661,6 @@ export default function SettlementIntakeWorkspace({ month }: { month: string }) 
           </ul>
         )}
       </div>
-      <SettlementPublicationResult month={month} latestVersionNo={versions[0]?.version_no ?? null} />
     </section>
   );
 }

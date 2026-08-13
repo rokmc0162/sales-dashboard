@@ -242,7 +242,7 @@ export type SubmittedIntakeVersion = {
 export function submitIntakeVersion(
   intakeId: string,
   expectedDraftRevision: number,
-): Promise<{ version: SubmittedIntakeVersion }> {
+): Promise<{ version: SubmittedIntakeVersion; job_id: string }> {
   return fetch(
     `/api/settlement/intakes/${encodeURIComponent(intakeId)}/submit`,
     {
@@ -250,5 +250,5 @@ export function submitIntakeVersion(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ expected_draft_revision: expectedDraftRevision }),
     },
-  ).then((response) => readIntakeJson<{ version: SubmittedIntakeVersion }>(response));
+  ).then((response) => readIntakeJson<{ version: SubmittedIntakeVersion; job_id: string }>(response));
 }
