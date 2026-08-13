@@ -42,6 +42,7 @@ async function main() {
       join(repo, "node_modules/@napi-rs/canvas-darwin-arm64"),
       join(repo, "node_modules/@tesseract.js-data/jpn"),
       join(repo, "node_modules/@tesseract.js-data/eng"),
+      join(repo, "node_modules/tesseract.js/src/worker-script/node"),
       join(repo, "node_modules/pdfjs-dist/cmaps"),
       join(runtimeDir),
       dirname(plist),
@@ -58,6 +59,7 @@ async function main() {
       "",
     ].join("\n"));
     await writeFile(join(repo, "scripts/settlement-worker.ts"), "console.log('fake');\n");
+    await writeFile(join(repo, "node_modules/tesseract.js/src/worker-script/node/index.js"), "// synthetic worker\n");
     await cp(join(sourceRepo, "ops/com.riverse.settlement-worker.plist.template"), join(repo, "ops/com.riverse.settlement-worker.plist.template"));
 
     const originalRepoLine = 'REPO_DIR="/Volumes/SSD_MacMini_2/HermesWork/rvjp-human-system-diff-ui"';
