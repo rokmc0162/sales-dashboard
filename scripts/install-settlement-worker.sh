@@ -14,6 +14,11 @@ LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 PLIST="$LAUNCH_AGENTS_DIR/$LABEL.plist"
 ENV_FILE="$REPO_DIR/.env.local"
 ESBUILD="$REPO_DIR/node_modules/.bin/esbuild"
+# tesseract.js stays external to the bundle; its Node worker and core resolve
+# these packages by name, so the full runtime closure ships under
+# RUNTIME_DIR/node_modules (node-fetch pulls whatwg-url -> tr46,
+# webidl-conversions).
+TESSERACT_RUNTIME_PACKAGES="tesseract.js bmp-js idb-keyval is-url node-fetch whatwg-url tr46 webidl-conversions regenerator-runtime tesseract.js-core wasm-feature-detect zlibjs"
 
 fail() {
   printf '%s\n' "settlement worker install: $1" >&2
@@ -30,6 +35,9 @@ fail() {
 [ -d "$REPO_DIR/node_modules/@tesseract.js-data/jpn" ] || fail "Japanese OCR data is missing"
 [ -d "$REPO_DIR/node_modules/@tesseract.js-data/eng" ] || fail "English OCR data is missing"
 [ -f "$REPO_DIR/node_modules/tesseract.js/src/worker-script/node/index.js" ] || fail "Tesseract worker script is missing"
+for pkg in $TESSERACT_RUNTIME_PACKAGES; do
+  [ -d "$REPO_DIR/node_modules/$pkg" ] || fail "OCR runtime package is missing: $pkg"
+done
 [ -d "$REPO_DIR/node_modules/pdfjs-dist/cmaps" ] || fail "PDF CMap data is missing"
 [ -d "$REPO_DIR/src/features/settlement/data" ] || fail "settlement assets are missing"
 [ -f "$ENV_FILE" ] || fail ".env.local is missing"
@@ -131,15 +139,12 @@ chmod 600 "$STAGED_ENV_FILE"
   --log-level=warning \
   --external:@napi-rs/canvas \
   --external:@napi-rs/canvas-* \
+  --external:tesseract.js \
   --banner:js="import { createRequire as __cr } from 'node:module'; import { fileURLToPath as __f } from 'node:url'; import { dirname as __d } from 'node:path'; const require=__cr(import.meta.url); const __filename=__f(import.meta.url); const __dirname=__d(__filename);" \
   --outfile="$STAGED_RUNTIME/$BUNDLE_REL"
 
 mkdir -p "$STAGED_RUNTIME/src/features/settlement"
 cp -R "$REPO_DIR/src/features/settlement/data" "$STAGED_RUNTIME/src/features/settlement/data"
-# tesseract.js resolves its Node worker relative to the bundled parser's
-# __dirname. Preserve the package src tree so worker-script/node can require
-# its parent worker implementation, utils, and constants by relative path.
-cp -R "$REPO_DIR/node_modules/tesseract.js/src/." "$STAGED_RUNTIME/src/features/settlement/"
 mkdir -p "$STAGED_RUNTIME/node_modules/pdfjs-dist"
 cp -R "$REPO_DIR/node_modules/pdfjs-dist/cmaps" "$STAGED_RUNTIME/node_modules/pdfjs-dist/cmaps"
 mkdir -p "$STAGED_RUNTIME/node_modules/@napi-rs" "$STAGED_RUNTIME/node_modules/@tesseract.js-data"
@@ -147,6 +152,9 @@ cp -R "$REPO_DIR/node_modules/@napi-rs/canvas" "$STAGED_RUNTIME/node_modules/@na
 cp -R "$REPO_DIR/node_modules/@napi-rs/canvas-darwin-arm64" "$STAGED_RUNTIME/node_modules/@napi-rs/canvas-darwin-arm64"
 cp -R "$REPO_DIR/node_modules/@tesseract.js-data/jpn" "$STAGED_RUNTIME/node_modules/@tesseract.js-data/jpn"
 cp -R "$REPO_DIR/node_modules/@tesseract.js-data/eng" "$STAGED_RUNTIME/node_modules/@tesseract.js-data/eng"
+for pkg in $TESSERACT_RUNTIME_PACKAGES; do
+  cp -R "$REPO_DIR/node_modules/$pkg" "$STAGED_RUNTIME/node_modules/$pkg"
+done
 
 sed \
   -e "s|__NODE_PATH__|$NODE_PATH|g" \

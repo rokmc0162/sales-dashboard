@@ -6,6 +6,23 @@ import { dirname, join } from "node:path";
 
 const sourceRepo = new URL("../", import.meta.url).pathname;
 
+// Mirrors TESSERACT_RUNTIME_PACKAGES in scripts/install-settlement-worker.sh:
+// the OCR runtime dependency closure packaged under runtime/node_modules.
+const tesseractRuntimePackages = [
+  "tesseract.js",
+  "bmp-js",
+  "idb-keyval",
+  "is-url",
+  "node-fetch",
+  "whatwg-url",
+  "tr46",
+  "webidl-conversions",
+  "regenerator-runtime",
+  "tesseract.js-core",
+  "wasm-feature-detect",
+  "zlibjs",
+];
+
 async function waitFor(path: string, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -43,8 +60,7 @@ async function main() {
       join(repo, "node_modules/@tesseract.js-data/jpn"),
       join(repo, "node_modules/@tesseract.js-data/eng"),
       join(repo, "node_modules/tesseract.js/src/worker-script/node"),
-      join(repo, "node_modules/tesseract.js/src/utils"),
-      join(repo, "node_modules/tesseract.js/src/constants"),
+      ...tesseractRuntimePackages.map((pkg) => join(repo, "node_modules", pkg)),
       join(repo, "node_modules/pdfjs-dist/cmaps"),
       join(runtimeDir),
       dirname(plist),
@@ -62,9 +78,6 @@ async function main() {
     ].join("\n"));
     await writeFile(join(repo, "scripts/settlement-worker.ts"), "console.log('fake');\n");
     await writeFile(join(repo, "node_modules/tesseract.js/src/worker-script/node/index.js"), "// synthetic worker\n");
-    await writeFile(join(repo, "node_modules/tesseract.js/src/worker-script/index.js"), "// synthetic parent\n");
-    await writeFile(join(repo, "node_modules/tesseract.js/src/utils/getEnvironment.js"), "// synthetic util\n");
-    await writeFile(join(repo, "node_modules/tesseract.js/src/constants/PSM.js"), "// synthetic constant\n");
     await cp(join(sourceRepo, "ops/com.riverse.settlement-worker.plist.template"), join(repo, "ops/com.riverse.settlement-worker.plist.template"));
 
     const originalRepoLine = 'REPO_DIR="/Volumes/SSD_MacMini_2/HermesWork/rvjp-human-system-diff-ui"';

@@ -6,6 +6,23 @@ import { dirname, join } from "node:path";
 
 const sourceRepo = new URL("../", import.meta.url).pathname;
 
+// Mirrors TESSERACT_RUNTIME_PACKAGES in scripts/install-settlement-worker.sh:
+// the OCR runtime dependency closure packaged under runtime/node_modules.
+const tesseractRuntimePackages = [
+  "tesseract.js",
+  "bmp-js",
+  "idb-keyval",
+  "is-url",
+  "node-fetch",
+  "whatwg-url",
+  "tr46",
+  "webidl-conversions",
+  "regenerator-runtime",
+  "tesseract.js-core",
+  "wasm-feature-detect",
+  "zlibjs",
+];
+
 async function main() {
   const root = await mkdtemp(join(tmpdir(), "settlement-installer-success-"));
   try {
@@ -29,10 +46,7 @@ async function main() {
       join(repo, "node_modules/@tesseract.js-data/jpn"),
       join(repo, "node_modules/@tesseract.js-data/eng"),
       join(repo, "node_modules/tesseract.js/src/worker-script/node"),
-      join(repo, "node_modules/tesseract.js/src/worker-script/utils"),
-      join(repo, "node_modules/tesseract.js/src/worker-script/constants"),
-      join(repo, "node_modules/tesseract.js/src/utils"),
-      join(repo, "node_modules/tesseract.js/src/constants"),
+      ...tesseractRuntimePackages.map((pkg) => join(repo, "node_modules", pkg)),
       join(repo, "node_modules/pdfjs-dist/cmaps"),
       dirname(plist),
       join(root, "tmp"),
@@ -52,10 +66,9 @@ async function main() {
     ].join("\n"));
     await writeFile(join(repo, "scripts/settlement-worker.ts"), "console.log('fake');\n");
     await writeFile(join(repo, "node_modules/tesseract.js/src/worker-script/node/index.js"), "// synthetic worker\n");
-    await writeFile(join(repo, "node_modules/tesseract.js/src/worker-script/index.js"), "// synthetic parent\n");
-    await writeFile(join(repo, "node_modules/tesseract.js/src/worker-script/utils/dump.js"), "// synthetic worker util\n");
-    await writeFile(join(repo, "node_modules/tesseract.js/src/utils/getEnvironment.js"), "// synthetic package util\n");
-    await writeFile(join(repo, "node_modules/tesseract.js/src/constants/PSM.js"), "// synthetic constant\n");
+    for (const pkg of tesseractRuntimePackages) {
+      await writeFile(join(repo, "node_modules", pkg, "package.json"), `{"name":"${pkg}"}\n`);
+    }
     await cp(join(sourceRepo, "ops/com.riverse.settlement-worker.plist.template"), join(repo, "ops/com.riverse.settlement-worker.plist.template"));
 
     const originalRepoLine = 'REPO_DIR="/Volumes/SSD_MacMini_2/HermesWork/rvjp-human-system-diff-ui"';
@@ -104,21 +117,25 @@ async function main() {
     assert.equal(exit, 0, `install must succeed, output: ${output}`);
     const installedWorkerScript = join(
       stateDir,
-      "runtime/src/features/settlement/worker-script/node/index.js",
+      "runtime/node_modules/tesseract.js/src/worker-script/node/index.js",
     );
     assert.equal(
       await readFile(installedWorkerScript, "utf8"),
       "// synthetic worker\n",
-      "installer must package the tesseract node worker beside the bundled OCR parser",
+      "installer must package the tesseract node worker inside runtime/node_modules",
     );
-    for (const relative of [
-      "runtime/src/features/settlement/worker-script/index.js",
-      "runtime/src/features/settlement/worker-script/utils/dump.js",
-      "runtime/src/features/settlement/utils/getEnvironment.js",
-      "runtime/src/features/settlement/constants/PSM.js",
-    ]) {
-      assert.equal((await stat(join(stateDir, relative))).isFile(), true, `${relative} must be packaged`);
+    for (const pkg of tesseractRuntimePackages) {
+      assert.equal(
+        await readFile(join(stateDir, "runtime/node_modules", pkg, "package.json"), "utf8"),
+        `{"name":"${pkg}"}\n`,
+        `${pkg} must be packaged under runtime/node_modules`,
+      );
     }
+    await assert.rejects(
+      stat(join(stateDir, "runtime/src/features/settlement/worker-script")),
+      { code: "ENOENT" },
+      "installer must not copy the tesseract src tree into the settlement feature directory",
+    );
 
     // worker.env holds exactly the three required vars, service-role key under
     // the canonical alias, at mode 0600.
