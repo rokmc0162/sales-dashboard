@@ -225,7 +225,7 @@ function dropBrokenTemplateFormulas(wb: ExcelJS.Workbook) {
       const value = cell.value;
       if (!value || typeof value !== "object" || !("formula" in value)
           || !("shareType" in value) || value.shareType !== "array") return;
-      const formulaValue = value as ExcelJS.CellFormulaValue & { ref?: string };
+      const formulaValue = value as unknown as { formula?: string; ref?: string };
       const formula = formulaValue.formula;
       if (formula && formulaValue.ref === cell.address
           && DEAD_XLOOKUP_FORMULA_RE.test(formula)) cell.value = null;

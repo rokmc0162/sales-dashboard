@@ -59,6 +59,18 @@ async function workbookBuffer(first = "first", second = "second"): Promise<Buffe
   sheet.addRow([null, null, null, second]);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
+async function workbookWithFormula(includeFormula: boolean): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("INPUT");
+  for (let row = 1; row < 6; row += 1) sheet.addRow([]);
+  sheet.addRow([null, null, null, "first"]);
+  sheet.addRow([null, null, null, "second"]);
+  if (includeFormula) {
+    sheet.getCell("E6").value = { formula: "1+1", result: 2 };
+    sheet.getCell("E7").value = { formula: "2+2", result: 4 };
+  }
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
 async function expectCode(run: () => Promise<unknown>, code: LocalWorkbookArtifactErrorCode): Promise<void> {
   await assert.rejects(run, (error: unknown) => {
     assert.ok(error instanceof LocalWorkbookArtifactError);
@@ -231,6 +243,25 @@ async function main(): Promise<void> {
         carry_rows: 0, overlay_rows: 0, append_rows: records.length, drop_rows: 0,
       }),
     }), "WORKBOOK_FAILED");
+
+    const formulaCandidate = await workbookWithFormula(true);
+    const formulaStrippedOffice = await workbookWithFormula(false);
+    await expectCode(() => generateLocalWorkbookArtifact({
+      ...deps,
+      runId: "office-stripped-formulas",
+      fillWorkbook: async ({ records }) => ({
+        buffer: formulaCandidate, fill_ms: 1, rows_written: records.length,
+        electronic_rows: records.length, publication_rows: 0,
+        electronic_sheet: "INPUT", publication_sheet: "INPUT_出版_7月",
+        carry_rows: 0, overlay_rows: 0, append_rows: records.length, drop_rows: 0,
+      }),
+      officeVerifier: async () => ({
+        verifier: "injected", version: "formula-stripping-office",
+        reopened: await validateSettlementWorkbook(formulaStrippedOffice),
+        archiveDigest: await xlsxArchiveDigest(formulaStrippedOffice),
+        verifiedWorkbook: formulaStrippedOffice,
+      }),
+    }), "OFFICE_FAILED");
 
     console.log("test-settlement-local-workbook-artifact: all assertions passed");
   } finally {
