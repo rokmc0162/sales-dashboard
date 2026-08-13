@@ -51,12 +51,15 @@ async function main() {
   try {
     const bytes = Buffer.from("verified publication workbook");
     const dir = path.join(ROOT, "artifact"); await fsp.mkdir(dir, { mode: 0o700 });
-    const candidatePath = path.join(dir, "candidate.xlsx"); await fsp.writeFile(candidatePath, bytes, { mode: 0o600 });
+    const candidatePath = path.join(dir, "office-verified.xlsx"); await fsp.writeFile(candidatePath, bytes, { mode: 0o600 });
     const input = { identity, candidatePath, workbookSha256: sha(bytes), workbookSizeBytes: bytes.byteLength };
 
     const okStore = new Store(bytes);
     const ok = await publishClaimedVersionWorkbook(input, okStore);
     assert.equal(ok.outcome, "published"); assert.equal(okStore.uploads, 1); assert.equal(okStore.publishes, 1);
+
+    const preOfficePath = path.join(dir, "candidate.xlsx"); await fsp.writeFile(preOfficePath, bytes, { mode: 0o600 });
+    assert.deepEqual(await publishClaimedVersionWorkbook({ ...input, candidatePath: preOfficePath }, new Store(bytes)), { outcome: "failed" });
 
     const networkStore = new Store(bytes); networkStore.uploadError = new Error("network secret");
     assert.deepEqual(await publishClaimedVersionWorkbook(input, networkStore), { outcome: "retry" });

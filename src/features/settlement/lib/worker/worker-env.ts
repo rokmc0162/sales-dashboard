@@ -5,6 +5,9 @@ export interface SettlementWorkerEnvironment {
   serviceRoleKey: string;
   databaseUrl: string;
   versionWorkRoot: string | null;
+  versionProcessingEnabled: boolean;
+  backupTransport: "local-sync" | "google-drive-api" | null;
+  localSyncRoot: string | null;
 }
 
 export const WORKER_SERVICE_ROLE_ENV_NAMES = [
@@ -38,10 +41,38 @@ export function requireWorkerEnvironment(
       throw new Error("SETTLEMENT_VERSION_WORK_ROOT must be a dedicated directory under SSD2");
     }
   }
+  const versionProcessingEnabled = env.SETTLEMENT_VERSION_PROCESSING_ENABLED === "true";
+  const explicitTransport = env.SETTLEMENT_BACKUP_TRANSPORT;
+  const transport: "local-sync" | "google-drive-api" | undefined =
+    explicitTransport === "local-sync" || explicitTransport === "google-drive-api"
+      ? explicitTransport
+      : !explicitTransport && env.SETTLEMENT_DRIVE_BACKUP_ENABLED === "true"
+        ? "google-drive-api"
+        : undefined;
+  if (explicitTransport && !transport) {
+    throw new Error("SETTLEMENT_BACKUP_TRANSPORT must be local-sync or google-drive-api");
+  }
+  let localSyncRoot: string | null = null;
+  if (transport === "local-sync") {
+    if (!env.SETTLEMENT_LOCAL_SYNC_ROOT || !path.isAbsolute(env.SETTLEMENT_LOCAL_SYNC_ROOT)) {
+      throw new Error("SETTLEMENT_LOCAL_SYNC_ROOT must be an absolute directory");
+    }
+    localSyncRoot = path.resolve(env.SETTLEMENT_LOCAL_SYNC_ROOT);
+    const allowed = "/Volumes/SSD_MacMini/CLINK_YANGIL_GoogleDrive";
+    if (!localSyncRoot.startsWith(`${allowed}${path.sep}`)) {
+      throw new Error("SETTLEMENT_LOCAL_SYNC_ROOT must be under the configured Google Drive sync mount");
+    }
+  }
+  if (versionProcessingEnabled && (!versionWorkRoot || !transport)) {
+    throw new Error("version processing requires SSD2 work root and backup transport");
+  }
   return {
     supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL as string,
     serviceRoleKey: serviceRoleKey as string,
     databaseUrl: env.SUPABASE_DATABASE_URL as string,
     versionWorkRoot,
+    versionProcessingEnabled,
+    backupTransport: transport ?? null,
+    localSyncRoot,
   };
 }

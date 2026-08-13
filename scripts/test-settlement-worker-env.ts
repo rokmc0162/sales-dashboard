@@ -79,6 +79,14 @@ function main() {
     /must be a dedicated directory under SSD2/,
   );
 
+  const legacyDrive = requireWorkerEnvironment({
+    ...base,
+    RVJP_DB_ADMIN_TOKEN: "primary-key",
+    SETTLEMENT_VERSION_WORK_ROOT: "/Volumes/SSD_MacMini_2/Riverse/settlement-worker",
+    SETTLEMENT_DRIVE_BACKUP_ENABLED: "true",
+  });
+  assert.equal(legacyDrive.backupTransport, "google-drive-api");
+
   console.log("test-settlement-worker-env: all assertions passed");
 }
 

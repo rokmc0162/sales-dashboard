@@ -62,6 +62,7 @@ const READY = {
   reused: false,
   snapshotReady: true as const,
   settlementMonth: "2026-07-01",
+  versionNo: 1,
   entries: [{
     versionFileId: "22222222-3333-4444-8555-666666666666",
     objectId: "33333333-4444-4555-8666-777777777777",

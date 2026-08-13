@@ -33,15 +33,12 @@ const SAFE_REASON_RE = /^[\x20-\x7E]{1,300}$/;
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const DEFAULT_RETRY_AFTER_SECONDS = 300;
 
-export type VersionDriveBackupEvidence = {
-  kind: DriveBackupKind;
-  backupId: string;
-  driveFileId: string;
-  reused: boolean;
-};
+export type VersionBackupEvidence =
+  | { transport: "google_drive_api"; kind: DriveBackupKind; backupId: string; driveFileId: string; reused: boolean }
+  | { transport: "local_sync"; relativeArchivePath: string; evidenceSha256: string; reused: boolean };
 
 export type VersionDriveBackupOutcome =
-  | { outcome: "backup_ready"; backups: VersionDriveBackupEvidence[] }
+  | { outcome: "backup_ready"; backups: VersionBackupEvidence[] }
   | { outcome: "lease_lost" | "interrupted" | "retry" | "failed"; backups?: never };
 
 export interface VersionDriveBackupDependencies {
@@ -75,7 +72,7 @@ export function planVersionDriveBackupArtifacts(input: {
   if (
     typeof input.candidatePath !== "string"
     || !path.isAbsolute(input.candidatePath)
-    || path.basename(input.candidatePath) !== "candidate.xlsx"
+    || path.basename(input.candidatePath) !== "office-verified.xlsx"
   ) {
     fail("workbook candidate path");
   }
@@ -185,7 +182,7 @@ export async function backupClaimedVersionArtifacts(input: {
     entries: input.snapshot.entries,
     candidatePath: input.candidatePath,
   });
-  const backups: VersionDriveBackupEvidence[] = [];
+  const backups: VersionBackupEvidence[] = [];
   for (const artifact of artifacts) {
     if (deps.shouldStop?.()) return { outcome: "interrupted" };
     if (!(await deps.heartbeat({ ...identity, leaseSeconds: input.leaseSeconds }))) {
@@ -221,6 +218,7 @@ export async function backupClaimedVersionArtifacts(input: {
       });
       if (result.outcome === "lease_lost") return { outcome: "lease_lost" };
       backups.push({
+        transport: "google_drive_api",
         kind: artifact.kind,
         backupId: result.backupId,
         driveFileId: result.driveFileId,

@@ -13,7 +13,7 @@ import type {
   ProcessingArtifactOutcome,
 } from "./version-processing-artifacts";
 import type {
-  VersionDriveBackupEvidence,
+  VersionBackupEvidence,
   VersionDriveBackupOutcome,
 } from "./version-drive-backup";
 import type { VersionPublicationOutcome } from "./version-publication";
@@ -28,7 +28,7 @@ export type VersionProcessingRunOutcome =
   | {
       outcome: "published";
       result: Extract<ProcessingArtifactOutcome, { outcome: "workbook_ready" }> & {
-        backups: VersionDriveBackupEvidence[];
+        backups: VersionBackupEvidence[];
       };
     }
   | { outcome: "failed" | "lease_lost" | "interrupted" | "retry"; result?: never };

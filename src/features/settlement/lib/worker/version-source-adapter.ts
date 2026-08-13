@@ -21,6 +21,7 @@ type Sql = postgres.Sql;
 export type FrozenVersionRow = {
   id: string;
   settlement_month: string;
+  version_no: number | string;
   file_count: number | string;
   total_size_bytes: number | string;
   manifest_sha256: string;
@@ -79,6 +80,7 @@ export interface VersionSourceAdapterDependencies {
 export type SnapshotReadyResult = VersionSourceSnapshotResult & {
   snapshotReady: true;
   settlementMonth: string;
+  versionNo: number;
   entries: VersionSourceManifestEntry[];
 };
 
@@ -270,6 +272,7 @@ export async function materializeClaimedVersionSnapshot(
     ...result,
     snapshotReady: true,
     settlementMonth: version.settlement_month,
+    versionNo: databaseInteger(version.version_no, "frozen version number"),
     entries: entries.map((entry) => ({ ...entry })),
   };
 }
@@ -309,7 +312,7 @@ export function createPostgresVersionSourceStore(sql: Sql): VersionSourceStore {
   return {
     async getVersion(versionId) {
       const rows = await sql<FrozenVersionRow[]>`
-        select v.id, m.month::text as settlement_month,
+        select v.id, m.month::text as settlement_month, v.version_no,
                v.file_count, v.total_size_bytes, v.manifest_sha256
         from public.settlement_intake_versions v
         join public.settlement_intake_months m on m.id = v.intake_id

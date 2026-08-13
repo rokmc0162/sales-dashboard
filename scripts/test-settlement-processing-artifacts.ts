@@ -18,7 +18,7 @@ const IDENTITY: VersionClaimIdentity = {
 const SNAPSHOT: SnapshotReadyResult = {
   snapshotDir: "/tmp/snapshot",
   manifestDigest: "a".repeat(64), fileCount: 1, totalBytes: 5, reused: false,
-  snapshotReady: true, settlementMonth: "2026-07-01",
+  snapshotReady: true, settlementMonth: "2026-07-01", versionNo: 1,
   entries: [{ objectId: "33333333-4444-4555-8666-777777777777", position: 0,
     pathKey: "source.csv", displayPath: "source.csv", sizeBytes: 5,
     sha256: "b".repeat(64), storagePath: `intake/202607/${"a".repeat(32)}/${"b".repeat(32)}` }],
@@ -34,10 +34,11 @@ const STAGE: LocalParseStageResult = {
 };
 const WORKBOOK: LocalWorkbookArtifactResult = {
   artifactDir: "/tmp/artifact", candidatePath: "/tmp/artifact/candidate.xlsx",
-  evidencePath: "/tmp/artifact/evidence.json", reused: false,
+  officePath: "/tmp/artifact/office-verified.xlsx", evidencePath: "/tmp/artifact/evidence.json", reused: false,
   evidence: { schemaVersion: 1, stageDigest: STAGE.digest, settlementMonth: "2026-07-01",
     detailRows: 1, workbookSha256: "d".repeat(64), workbookArchiveDigest: "e".repeat(64),
-    workbookSizeBytes: 200, reopened: { sheetCount: 2, rowCount: 3 }, office: {
+    workbookSizeBytes: 200, officeWorkbookSha256: "a".repeat(64), officeWorkbookSizeBytes: 210,
+    reopened: { sheetCount: 2, rowCount: 3 }, office: {
       verifier: "libreoffice", version: "LibreOffice test", reopened: { sheetCount: 2, rowCount: 3 }, archiveDigest: "f".repeat(64),
     } },
 };
@@ -49,7 +50,7 @@ function deps(events: string[], heartbeat = [true, true], stageReady = true, wor
     fence: {
       heartbeat: async () => { events.push("heartbeat"); return heartbeat.shift() ?? false; },
       markStageReady: async (input: { stageSha256: string }) => { events.push("stage-ready"); assert.equal(input.stageSha256, PERSISTED_STAGE_SHA); assert.notEqual(input.stageSha256, STAGE.digest); return stageReady; },
-      markWorkbookReady: async (input: { workbookSha256: string; officeVerifier: string }) => { events.push("workbook-ready"); assert.equal(input.workbookSha256, WORKBOOK.evidence.workbookSha256); assert.equal(input.officeVerifier, "libreoffice"); return workbookReady; },
+      markWorkbookReady: async (input: { workbookSha256: string; officeVerifier: string }) => { events.push("workbook-ready"); assert.equal(input.workbookSha256, WORKBOOK.evidence.officeWorkbookSha256); assert.equal(input.officeVerifier, "libreoffice"); return workbookReady; },
     },
     loadLookups: async () => { events.push("lookups"); return { clientIds: new Map(), channelIds: new Map() }; },
     parseFile: async () => { throw new Error("not called by injected build"); },

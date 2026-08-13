@@ -97,6 +97,8 @@ mkdir -p "$(dirname "$STAGED_RUNTIME/$BUNDLE_REL")"
   // values; otherwise a valid existing value survives the reinstall.
   const optionalKeys = [
     "SETTLEMENT_VERSION_PROCESSING_ENABLED",
+    "SETTLEMENT_BACKUP_TRANSPORT",
+    "SETTLEMENT_LOCAL_SYNC_ROOT",
     "SETTLEMENT_DRIVE_BACKUP_ENABLED",
     "GOOGLE_DRIVE_CLIENT_EMAIL",
     "GOOGLE_DRIVE_PRIVATE_KEY",
@@ -104,7 +106,12 @@ mkdir -p "$(dirname "$STAGED_RUNTIME/$BUNDLE_REL")"
     "GOOGLE_DRIVE_BACKUP_ROOT_FOLDER_ID",
     "SETTLEMENT_VERSION_WORK_ROOT",
   ];
+  const explicitTransport = fresh("SETTLEMENT_BACKUP_TRANSPORT") || existing.SETTLEMENT_BACKUP_TRANSPORT;
+  const legacyDriveEnabled = (fresh("SETTLEMENT_DRIVE_BACKUP_ENABLED") || existing.SETTLEMENT_DRIVE_BACKUP_ENABLED) === "true";
+  const migratedTransport = explicitTransport || (legacyDriveEnabled ? "google-drive-api" : undefined);
+  if (migratedTransport) lines.push(`SETTLEMENT_BACKUP_TRANSPORT=${JSON.stringify(migratedTransport)}`);
   for (const name of optionalKeys) {
+    if (name === "SETTLEMENT_BACKUP_TRANSPORT") continue;
     let value = fresh(name) || existing[name];
     if (!value) continue;
     if (name === "GOOGLE_DRIVE_PRIVATE_KEY") value = value.replaceAll("\\n", "\n");

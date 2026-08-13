@@ -113,7 +113,7 @@ async function fixture() {
     fsp.writeFile(path.join(snapshotDir, "manifest.json"), manifest, { mode: 0o600 }),
     fsp.writeFile(path.join(filesDir, entries[0].displayPath), first, { mode: 0o600 }),
     fsp.writeFile(path.join(filesDir, entries[1].displayPath), second, { mode: 0o600 }),
-    fsp.writeFile(path.join(workbookDir, "candidate.xlsx"), workbook, { mode: 0o600 }),
+    fsp.writeFile(path.join(workbookDir, "office-verified.xlsx"), workbook, { mode: 0o600 }),
   ]);
   const artifacts = new Map<string, { bytes: Buffer; mimeType: string }>([
     ["source_manifest:-", { bytes: manifest, mimeType: "application/json" }],
@@ -121,7 +121,7 @@ async function fixture() {
     [`source_file:${entries[1].versionFileId}`, { bytes: second, mimeType: "application/octet-stream" }],
     ["verified_workbook:-", { bytes: workbook, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }],
   ]);
-  return { snapshotDir, candidatePath: path.join(workbookDir, "candidate.xlsx"), entries, artifacts };
+  return { snapshotDir, candidatePath: path.join(workbookDir, "office-verified.xlsx"), entries, artifacts };
 }
 
 async function main() {
@@ -177,6 +177,10 @@ async function main() {
     }), { outcome: "retry" });
     assert.equal(retryStore.retries.length, 1);
     assert.ok(!retryStore.retries[0].errorSummary.includes(ROOT));
+
+    const preOffice = path.join(path.dirname(fx.candidatePath), "candidate.xlsx");
+    await fsp.writeFile(preOffice, "candidate", { mode: 0o600 });
+    assert.throws(() => planVersionDriveBackupArtifacts({ identity, snapshotDir: fx.snapshotDir, entries: fx.entries, candidatePath: preOffice }), /plan invalid/);
 
     const badEntries = [{ ...fx.entries[0], displayPath: "../escape.csv" }];
     assert.throws(() => planVersionDriveBackupArtifacts({ identity, snapshotDir: fx.snapshotDir, entries: badEntries, candidatePath: fx.candidatePath }), /plan invalid/);

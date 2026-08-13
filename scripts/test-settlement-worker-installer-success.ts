@@ -153,6 +153,7 @@ async function main() {
       'NEXT_PUBLIC_SUPABASE_URL="https://example.invalid"',
       'RVJP_DB_ADMIN_TOKEN="fake-service-role"',
       'SUPABASE_DATABASE_URL="postgresql://fake.invalid/db"',
+      'SETTLEMENT_BACKUP_TRANSPORT="google-drive-api"',
       'SETTLEMENT_VERSION_PROCESSING_ENABLED="true"',
       'SETTLEMENT_DRIVE_BACKUP_ENABLED="true"',
       'GOOGLE_DRIVE_CLIENT_EMAIL="fake-drive-worker@fake.iam.gserviceaccount.com"',

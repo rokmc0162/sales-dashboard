@@ -114,11 +114,11 @@ export async function processSnapshotArtifacts(input: {
   if (evidence.office.verifier !== "libreoffice") return { outcome: "lease_lost" };
   if (!(await deps.fence.markWorkbookReady({
     ...identity,
-    workbookSha256: evidence.workbookSha256,
-    archiveSha256: evidence.workbookArchiveDigest,
-    sizeBytes: evidence.workbookSizeBytes,
-    sheetCount: evidence.reopened.sheetCount,
-    rowCount: evidence.reopened.rowCount,
+    workbookSha256: evidence.officeWorkbookSha256,
+    archiveSha256: evidence.office.archiveDigest,
+    sizeBytes: evidence.officeWorkbookSizeBytes,
+    sheetCount: evidence.office.reopened.sheetCount,
+    rowCount: evidence.office.reopened.rowCount,
     officeVerifier: "libreoffice",
     officeVersion: evidence.office.version,
     officeArchiveSha256: evidence.office.archiveDigest,

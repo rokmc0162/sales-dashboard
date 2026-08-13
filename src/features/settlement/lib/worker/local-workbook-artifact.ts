@@ -29,10 +29,11 @@ type OfficeVerificationResult = OfficeVerification & { verifiedWorkbook: Buffer 
 export type LocalWorkbookEvidence = {
   schemaVersion: 1; stageDigest: string; settlementMonth: string; detailRows: number;
   workbookSha256: string; workbookArchiveDigest: string; workbookSizeBytes: number;
+  officeWorkbookSha256: string; officeWorkbookSizeBytes: number;
   reopened: WorkbookShape; office: OfficeVerification;
 };
 export type LocalWorkbookArtifactResult = {
-  artifactDir: string; candidatePath: string; evidencePath: string;
+  artifactDir: string; candidatePath: string; officePath: string; evidencePath: string;
   evidence: LocalWorkbookEvidence; reused: boolean;
 };
 type FillWorkbook = (input: { month: string; records: Record<string, unknown>[] }) => Promise<InputV2FillResult>;
@@ -188,6 +189,8 @@ function evidenceMatchesStored(value: unknown, stage: LocalParseStageResult, det
   return row.schemaVersion === 1 && row.stageDigest === stage.digest && row.settlementMonth === stage.settlementMonth
     && row.detailRows === detailRows && row.workbookSha256 === sha256(candidate)
     && row.workbookArchiveDigest === checked.archiveDigest && row.workbookSizeBytes === candidate.byteLength
+    && SHA256_RE.test(row.officeWorkbookSha256 ?? "")
+    && Number.isInteger(row.officeWorkbookSizeBytes) && (row.officeWorkbookSizeBytes ?? 0) > 0
     && row.reopened?.sheetCount === checked.reopened.sheetCount && row.reopened?.rowCount === checked.reopened.rowCount
     && !!office && (office.verifier === "libreoffice" || office.verifier === "injected")
     && typeof office.version === "string" && office.version.length > 0 && office.version.length <= 200
@@ -254,6 +257,8 @@ export async function generateLocalWorkbookArtifact(input: {
       let evidence: unknown; try { evidence = JSON.parse(evidenceBytes.toString("utf8")); } catch { fail("ARTIFACT_CHANGED"); }
       if (!evidenceMatchesStored(evidence, frozen.stage, frozen.records.length, candidate, checked)) fail("ARTIFACT_CHANGED");
       if (evidence.office.archiveDigest !== officeChecked.archiveDigest
+        || evidence.officeWorkbookSha256 !== sha256(officeWorkbook)
+        || evidence.officeWorkbookSizeBytes !== officeWorkbook.byteLength
         || evidence.office.reopened.sheetCount !== officeChecked.reopened.sheetCount
         || evidence.office.reopened.rowCount !== officeChecked.reopened.rowCount) fail("ARTIFACT_CHANGED");
       let currentOffice: OfficeVerificationResult;
@@ -264,7 +269,7 @@ export async function generateLocalWorkbookArtifact(input: {
         || currentOffice.reopened.rowCount !== evidence.office.reopened.rowCount) fail("ARTIFACT_CHANGED");
       const finalCandidate = await readPrivateFile(candidatePath, MAX_XLSX_BYTES);
       if (!finalCandidate.equals(candidate)) fail("ARTIFACT_CHANGED");
-      return { artifactDir, candidatePath, evidencePath, evidence, reused: true };
+      return { artifactDir, candidatePath, officePath, evidencePath, evidence, reused: true };
     }
     let officeResult: OfficeVerificationResult;
     try { officeResult = await officeVerifier({ buffer: Buffer.from(candidate), workRoot, validateWorkbook, archiveDigest }); } catch { fail("OFFICE_FAILED"); }
@@ -287,7 +292,8 @@ export async function generateLocalWorkbookArtifact(input: {
     const evidence: LocalWorkbookEvidence = {
       schemaVersion: 1, stageDigest: frozen.stage.digest, settlementMonth: frozen.stage.settlementMonth,
       detailRows: frozen.records.length, workbookSha256: sha256(candidate), workbookArchiveDigest: checked.archiveDigest,
-      workbookSizeBytes: candidate.byteLength, reopened: checked.reopened, office: cloneCanonical(office),
+      workbookSizeBytes: candidate.byteLength, officeWorkbookSha256: sha256(storedOffice),
+      officeWorkbookSizeBytes: storedOffice.byteLength, reopened: checked.reopened, office: cloneCanonical(office),
     };
     const evidenceBytes = Buffer.from(canonicalJson(evidence), "utf8");
     const tempEvidence = path.join(runDir, `.evidence-${randomUUID()}.json`);
@@ -301,7 +307,7 @@ export async function generateLocalWorkbookArtifact(input: {
     if (!evidenceMatchesStored(parsed, frozen.stage, frozen.records.length, candidate, checked)) fail("ARTIFACT_CHANGED");
     const finalCandidate = await readPrivateFile(candidatePath, MAX_XLSX_BYTES);
     if (!finalCandidate.equals(candidate)) fail("ARTIFACT_CHANGED");
-    return { artifactDir, candidatePath, evidencePath, evidence: parsed, reused: !createdCandidate };
+    return { artifactDir, candidatePath, officePath, evidencePath, evidence: parsed, reused: !createdCandidate };
   } catch (error) {
     if (error instanceof LocalWorkbookArtifactError) throw error;
     fail("INVALID_INPUT");

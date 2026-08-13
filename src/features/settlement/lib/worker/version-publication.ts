@@ -62,7 +62,7 @@ function safeInteger(value: number | string): number {
 async function readVerifiedCandidate(input: {
   candidatePath: string; expectedSha256: string; expectedSizeBytes: number;
 }): Promise<Buffer> {
-  if (!path.isAbsolute(input.candidatePath) || path.basename(input.candidatePath) !== "candidate.xlsx"
+  if (!path.isAbsolute(input.candidatePath) || path.basename(input.candidatePath) !== "office-verified.xlsx"
       || !/^[0-9a-f]{64}$/.test(input.expectedSha256)
       || !Number.isSafeInteger(input.expectedSizeBytes) || input.expectedSizeBytes < 1 || input.expectedSizeBytes > 67_108_864) {
     throw new PublicationEvidenceError("publication evidence invalid");

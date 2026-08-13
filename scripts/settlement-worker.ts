@@ -24,6 +24,7 @@ import { createSettlementDriveBackupClient } from "../src/features/settlement/li
 import { readSettlementDriveBackupConfig } from "../src/features/settlement/lib/worker/drive-backup-config";
 import { createPostgresDriveBackupStore } from "../src/features/settlement/lib/worker/drive-backup-runner";
 import { backupClaimedVersionArtifacts } from "../src/features/settlement/lib/worker/version-drive-backup";
+import { backupClaimedVersionToLocalSync, createPostgresLocalSyncBackupStore } from "../src/features/settlement/lib/worker/version-local-sync-backup";
 import {
   createVersionPublicationStore,
   publishClaimedVersionWorkbook,
@@ -136,9 +137,12 @@ async function main() {
     const versionFence = createPostgresVersionSourceFence(sql);
     const versionLifecycle = createPostgresVersionRunLifecycle(sql);
     const artifactFence = createPostgresProcessingArtifactFence(sql);
-    const driveBackupConfig = readSettlementDriveBackupConfig();
+    const driveBackupConfig = env.backupTransport === "google-drive-api"
+      ? readSettlementDriveBackupConfig()
+      : { enabled: false as const };
     const driveBackup = driveBackupConfig.enabled ? driveBackupConfig : null;
     const driveBackupStore = createPostgresDriveBackupStore(sql);
+    const localSyncBackupStore = createPostgresLocalSyncBackupStore(sql);
     const publicationStore = createVersionPublicationStore(sql, supabase);
     let driveClient: SettlementDriveClient | null = null;
     const [{ parseFile: versionParseFile }, { toSalesRecords: versionToSalesRecords, buildLookupMaps: versionBuildLookupMaps }, { xlsxArchiveDigest }] = await Promise.all([
@@ -155,7 +159,8 @@ async function main() {
         // can continue a backup-ready run safely. It fails closed without an
         // enabled Drive backup config: a run is never claimed if its verified
         // artifacts could not be backed up.
-        versionEnabled: once && env.versionWorkRoot !== null && driveBackup !== null,
+        versionEnabled: (once || env.versionProcessingEnabled) && env.versionWorkRoot !== null
+          && (env.backupTransport === "local-sync" ? env.localSyncRoot !== null : driveBackup !== null),
         claimVersion: () => claimSettlementVersionRun(sql, id, leaseSeconds),
         runVersion: (run) => runClaimedVersionProcessing(run, {
           workRoot: env.versionWorkRoot as string,
@@ -182,12 +187,26 @@ async function main() {
             archiveDigest: xlsxArchiveDigest,
           }),
           backupArtifacts: (input) => {
+            if (env.backupTransport === "local-sync" && env.localSyncRoot) {
+              return backupClaimedVersionToLocalSync({
+                identity: input.identity,
+                snapshot: input.snapshot,
+                workbook: input.workbook,
+                root: env.localSyncRoot,
+                allowedBaseRoot: "/Volumes/SSD_MacMini/CLINK_YANGIL_GoogleDrive",
+                leaseSeconds: input.leaseSeconds,
+              }, {
+                store: localSyncBackupStore,
+                heartbeat: (heartbeatInput) => versionFence.heartbeat(heartbeatInput),
+                shouldStop: () => stopping,
+              });
+            }
             if (!driveBackup) throw new Error("settlement drive backup config is disabled");
             driveClient ??= createSettlementDriveBackupClient(driveBackup);
             return backupClaimedVersionArtifacts({
               identity: input.identity,
               snapshot: input.snapshot,
-              candidatePath: input.workbook.workbook.candidatePath,
+              candidatePath: input.workbook.workbook.officePath,
               driveParentId: driveBackup.backupRootFolderId,
               leaseSeconds: input.leaseSeconds,
             }, {
@@ -199,9 +218,9 @@ async function main() {
           },
           publishWorkbook: (input) => publishClaimedVersionWorkbook({
             identity: input.identity,
-            candidatePath: input.workbook.workbook.candidatePath,
-            workbookSha256: input.workbook.workbook.evidence.workbookSha256,
-            workbookSizeBytes: input.workbook.workbook.evidence.workbookSizeBytes,
+            candidatePath: input.workbook.workbook.officePath,
+            workbookSha256: input.workbook.workbook.evidence.officeWorkbookSha256,
+            workbookSizeBytes: input.workbook.workbook.evidence.officeWorkbookSizeBytes,
           }, publicationStore),
         }),
         claimLegacy: () => claimSettlementJob(sql, id, leaseSeconds),
