@@ -44,13 +44,17 @@ export async function GET(
   }
 
   try {
-    const { fillInputV2Template } = await import(
+    const { fillInputV2Template, INPUT_V2_REVIEW_TEMPLATE } = await import(
       "@/features/settlement/lib/export/input-v2-filler"
     );
     const { workbookBufferToPreview } = await import(
       "@/features/settlement/lib/export/workbook-preview"
     );
-    const result = await fillInputV2Template({ month, records });
+    const result = await fillInputV2Template({
+      month,
+      records,
+      templatePath: INPUT_V2_REVIEW_TEMPLATE,
+    });
     const preview = await workbookBufferToPreview(result.buffer, {
       month,
       source,

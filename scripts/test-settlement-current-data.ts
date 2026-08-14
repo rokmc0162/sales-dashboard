@@ -312,6 +312,7 @@ async function main() {
 
   let exportOptions: { allowIncompleteSources?: boolean } | undefined;
   let filledRecords: Record<string, unknown>[] | undefined;
+  let reviewTemplatePath: URL | undefined;
   const incompleteExport = await handleCurrentExport(
     authenticatedRequest("/api/settlement/export-current/202606.xlsx"),
     "202606.xlsx",
@@ -321,22 +322,28 @@ async function main() {
         exportOptions = options;
         return loaderResult();
       },
-      fillTemplate: async ({ records }) => {
+      fillTemplate: async ({ records, templatePath }) => {
         filledRecords = records;
-        return exportDeps.fillTemplate!({ month: "202606", records });
+        reviewTemplatePath = templatePath;
+        return exportDeps.fillTemplate!({ month: "202606", records, templatePath });
       },
     },
   );
   assert.equal(incompleteExport.status, 200);
   assert.equal(exportOptions?.allowIncompleteSources, true);
   assert.equal(filledRecords?.length, 1);
+  assert.match(
+    reviewTemplatePath?.pathname ?? "",
+    /input_jp_2026_v2_template\.xlsx$/,
+    "review export must use the full electronic + publication template",
+  );
   assert.equal(
     incompleteExport.headers.get("content-type"),
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   );
   assert.match(
     incompleteExport.headers.get("content-disposition") ?? "",
-    /JP_INPUT_CURRENT_202606\.xlsx/,
+    /JP_INPUT_REVIEW_DRAFT_202606\.xlsx/,
   );
   assert.equal(incompleteExport.headers.get("x-export-current-status"), "incomplete");
   assert.equal(incompleteExport.headers.get("x-export-current-warning-count"), "1");
@@ -412,8 +419,10 @@ async function main() {
     settlementClient,
     /setMonthPlatformsVersion\(\(v\) => v \+ 1\);\s*setCurrentStatusVersion\(\(v\) => v \+ 1\);/,
   );
-  assert.match(settlementClient, /현재 파싱본 Excel 다운로드/);
-  assert.match(settlementClient, /現在の解析版Excelをダウンロード/);
+  assert.match(settlementClient, /나카타니 확인용 Excel 다운로드/);
+  assert.match(settlementClient, /中谷さん確認用Excelをダウンロード/);
+  assert.match(settlementClient, /中谷さん確認用の未確定版/);
+  assert.match(settlementClient, /最終精算書ではありません/);
   assert.match(settlementClient, /완전성 검사 후 최종 Excel/);
   assert.match(settlementClient, /完全性検査後の最終Excel/);
   assert.ok(
@@ -423,8 +432,9 @@ async function main() {
   );
 
   assert.match(previewTable, /sourceWarnings\?: string\[\]/);
-  assert.match(previewWindow, /현재 정산 데이터/);
-  assert.match(previewWindow, /現在の精算データ/);
+  assert.match(previewWindow, /나카타니 확인용 Excel/);
+  assert.match(previewWindow, /中谷さん確認用Excel/);
+  assert.match(previewWindow, /最終精算書ではありません/);
   assert.match(previewWindow, /preview\.sourceWarnings/);
   assert.match(previewWindow, /preview\.sheets\.length/);
   assert.ok(

@@ -813,6 +813,13 @@ export default function SettlementClient({
               </span>
             </div>
 
+            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm font-semibold leading-relaxed text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
+              {t(
+                '나카타니 확인용 중간본입니다. 전자·출판 시트를 확인할 수 있지만 최종 정산서가 아닙니다.',
+                '中谷さん確認用の未確定版です。電子・出版の両シートを確認できますが、最終精算書ではありません。',
+              )}
+            </div>
+
             {currentStatus.isComplete ? (
               <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
                 {t('필수 소스 완전성 검사를 통과했습니다.', '必須ソースの完全性検査に合格しました。')}
@@ -830,11 +837,11 @@ export default function SettlementClient({
             <div className="mt-4 flex flex-wrap gap-3">
               <a
                 href={`/api/settlement/export-current/${month}.xlsx`}
-                download={`JP_INPUT_CURRENT_${month}.xlsx`}
+                download={`JP_INPUT_REVIEW_DRAFT_${month}.xlsx`}
                 className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
               >
                 <Download className="mr-2 h-4 w-4" />
-                {t('현재 파싱본 Excel 다운로드', '現在の解析版Excelをダウンロード')}
+                {t('나카타니 확인용 Excel 다운로드', '中谷さん確認用Excelをダウンロード')}
               </a>
               <button
                 type="button"
@@ -842,7 +849,7 @@ export default function SettlementClient({
                 className="inline-flex items-center rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 transition hover:border-blue-500 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950"
               >
                 <ExternalLink className="mr-2 h-4 w-4" />
-                {t('현재 정산 데이터 보기', '現在の精算データを表示')}
+                {t('나카타니 확인용 Excel 보기', '中谷さん確認用Excelを表示')}
               </button>
               <a
                 href={currentStatus.isComplete ? `/api/settlement/export-v2/${month}.xlsx` : undefined}

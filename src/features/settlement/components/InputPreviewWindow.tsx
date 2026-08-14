@@ -85,7 +85,9 @@ export default function InputPreviewWindow({
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-600">Settlement</p>
           <h1 className="mt-1 text-xl font-bold text-slate-950 dark:text-white">
-            {t(`${monthLabel} 현재 정산 데이터`, `${monthLabel} 現在の精算データ`)}
+            {published
+              ? t(`${monthLabel} 검증된 최종 정산 데이터`, `${monthLabel} 検証済み最終精算データ`)
+              : t(`${monthLabel} 나카타니 확인용 Excel`, `${monthLabel} 中谷さん確認用Excel`)}
           </h1>
           {preview && (
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -106,13 +108,13 @@ export default function InputPreviewWindow({
             href={published
               ? `/api/settlement/publications/${normalizedMonth}/download`
               : `/api/settlement/export-current/${normalizedMonth}.xlsx`}
-            download={published ? `JP_INPUT_${normalizedMonth}.xlsx` : `JP_INPUT_CURRENT_${normalizedMonth}.xlsx`}
+            download={published ? `JP_INPUT_${normalizedMonth}.xlsx` : `JP_INPUT_REVIEW_DRAFT_${normalizedMonth}.xlsx`}
             className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
           >
             <Download className="mr-2 h-4 w-4" />
             {published
               ? t('검증된 최종 Excel 다운로드', '検証済み最終Excelをダウンロード')
-              : t('현재 파싱본 Excel 다운로드', '現在の解析版Excelをダウンロード')}
+              : t('중간 확인용 Excel 다운로드', '確認用Excel（未確定）をダウンロード')}
           </a>
           {!published && <a
             href={`/api/settlement/export-v2/${normalizedMonth}.xlsx`}
@@ -124,6 +126,15 @@ export default function InputPreviewWindow({
           </a>}
         </div>
       </header>
+
+      {!published && (
+        <div className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold leading-relaxed text-blue-900 shadow-sm dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
+          {t(
+            '나카타니 확인용 중간본입니다. 전자·출판 시트를 모두 확인할 수 있지만, 아직 최종 정산서가 아닙니다.',
+            '中谷さん確認用の未確定版です。電子・出版の両シートを確認できますが、最終精算書ではありません。',
+          )}
+        </div>
+      )}
 
       {loading && !preview && (
         <div className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-16 text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">

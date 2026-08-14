@@ -61,6 +61,7 @@ export type CurrentExportDependencies = {
   fillTemplate?: (options: {
     month: string;
     records: Record<string, unknown>[];
+    templatePath: URL;
   }) => Promise<CurrentWorkbookResult>;
 };
 
@@ -100,11 +101,14 @@ export async function handleCurrentExport(
   }
 
   try {
-    const fillTemplate = dependencies?.fillTemplate ?? (await import(
-      "./export/input-v2-filler"
-    )).fillInputV2Template;
-    const result = await fillTemplate({ month, records });
-    const filename = `JP_INPUT_CURRENT_${month}.xlsx`;
+    const filler = await import("./export/input-v2-filler");
+    const fillTemplate = dependencies?.fillTemplate ?? filler.fillInputV2Template;
+    const result = await fillTemplate({
+      month,
+      records,
+      templatePath: filler.INPUT_V2_REVIEW_TEMPLATE,
+    });
+    const filename = `JP_INPUT_REVIEW_DRAFT_${month}.xlsx`;
     return new NextResponse(result.buffer as unknown as BodyInit, {
       headers: {
         "Content-Type":

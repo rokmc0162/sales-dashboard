@@ -18,6 +18,12 @@ const DEFAULT_TEMPLATE = new URL(
   import.meta.url,
 );
 
+/** Full electronic + publication layout used only for authenticated operator review. */
+export const INPUT_V2_REVIEW_TEMPLATE = new URL(
+  "../../data/templates/input_jp_2026_v2_template.xlsx",
+  import.meta.url,
+);
+
 const FIRST_DATA_ROW = 6;
 
 // Exported: workbook validators check that a generated INPUT sheet actually
@@ -156,7 +162,7 @@ function normalizeChannel(rec: Record<string, unknown>): string {
 export interface InputV2FillOptions {
   month: string;
   records: Record<string, unknown>[];
-  templatePath?: string;
+  templatePath?: string | URL;
 }
 
 export interface InputV2FillResult {

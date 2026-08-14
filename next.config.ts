@@ -18,8 +18,11 @@ const nextConfig: NextConfig = {
     '/api/settlement/export-v2/[month]': [
       './src/features/settlement/data/templates/input_jp_2026_v3_template.xlsx',
     ],
+    '/api/settlement/export-current/[month]': [
+      './src/features/settlement/data/templates/input_jp_2026_v2_template.xlsx',
+    ],
     '/api/settlement/preview-v2/[month]': [
-      './src/features/settlement/data/templates/input_jp_2026_v3_template.xlsx',
+      './src/features/settlement/data/templates/input_jp_2026_v2_template.xlsx',
     ],
   },
   // Turbopack can conservatively trace the repository root through the
