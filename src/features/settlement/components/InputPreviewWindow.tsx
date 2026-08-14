@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Download, Loader2, RefreshCw } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import InputPreviewTable, { type PreviewData } from './InputPreviewTable';
+import { reviewPreviewSheets } from './input-preview-selection';
 
 // Error state carries a kind instead of a translated string so that switching
 // the UI language never has to re-run the (expensive) preview fetch.
@@ -48,9 +49,15 @@ export default function InputPreviewWindow({
       }
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       const data = json as PreviewData;
-      setPreview(data);
-      const firstInput = data.sheets.find((s) => s.name.startsWith('input_'));
-      setActiveSheet(firstInput?.name ?? data.sheets[0]?.name ?? null);
+      if (published) {
+        setPreview(data);
+        const firstInput = data.sheets.find((s) => s.name.startsWith('input_'));
+        setActiveSheet(firstInput?.name ?? data.sheets[0]?.name ?? null);
+      } else {
+        const sheets = reviewPreviewSheets(data.sheets);
+        setPreview({ ...data, sheets });
+        setActiveSheet(sheets[0]?.name ?? null);
+      }
     } catch (err) {
       setPreview(null);
       setActiveSheet(null);

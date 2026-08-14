@@ -42,7 +42,7 @@
     "test:settlement-intake": "node --import tsx scripts/test-settlement-intake-version-contract.ts && node --import tsx scripts/test-settlement-intake-schema.ts && npm run test:settlement-intake-api && npm run test:settlement-intake-ui",
     "test:settlement-intake-api": "node --import tsx scripts/test-settlement-intake-api.ts",
     "test:settlement-intake-ui": "node --import tsx scripts/test-settlement-intake-ui.ts",
-    "test:settlement-current-data": "node --conditions=react-server --import tsx scripts/test-settlement-current-data.ts",
+    "test:settlement-current-data": "node --conditions=react-server --import tsx scripts/test-settlement-current-data.ts && node --import tsx scripts/test-input-preview-selection.ts",
     "bench:shueisha": "node --import tsx scripts/bench-shueisha-ocr.ts",
     "test:july-intake-parser-routing": "node --import tsx scripts/test-july-intake-parser-routing.ts",
     "test:shueisha-skewed-grid": "node --import tsx scripts/test-shueisha-skewed-grid.ts",
