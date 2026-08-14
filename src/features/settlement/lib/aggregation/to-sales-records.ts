@@ -29,8 +29,10 @@ export interface LookupMaps {
   clientIds: Map<string, string>;
   /** channel_code → channel_id uuid */
   channelIds: Map<string, string>;
-  /** title_jp canonical → title_id uuid */
+  /** title/alias exact-fold key → uniquely resolved title_id uuid */
   titleIds?: Map<string, string>;
+  /** folded title/alias keys that point at more than one title and must never be guessed */
+  ambiguousTitleKeys?: Set<string>;
   /** client alias (any casing/spacing) → client_code */
   clientAliasesToCode?: Map<string, string>;
 }
@@ -53,6 +55,8 @@ export interface TransformContext {
   upload_id?: string | null;
   raw_record_id_by_index?: Map<number, string>;
   lookups: LookupMaps;
+  /** Publication-capable immutable workers enable this only after master coverage reaches zero unresolved rows. */
+  requireTitleResolution?: boolean;
 }
 
 export type AnyInputRow =
@@ -235,6 +239,37 @@ function foldAlias(v: unknown): string {
     .toLowerCase();
 }
 
+/** Exact identity fold only. Semantic punctuation and edition markers remain significant. */
+export function foldTitleLookupKey(v: unknown): string {
+  return String(v ?? "")
+    .normalize("NFKC")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLowerCase();
+}
+
+export type TitleResolution =
+  | { status: "resolved"; titleId: string }
+  | { status: "ambiguous" | "unresolved"; titleId: null };
+
+export function resolveMasterTitle(
+  record: Pick<SalesRecordInsert, "channel_title_jp" | "title_jp" | "title_kr">,
+  lookups: LookupMaps,
+): TitleResolution {
+  const keys = [record.channel_title_jp, record.title_jp, record.title_kr]
+    .map(foldTitleLookupKey)
+    .filter(Boolean);
+  if (keys.some((key) => lookups.ambiguousTitleKeys?.has(key))) {
+    return { status: "ambiguous", titleId: null };
+  }
+  const ids = new Set(
+    keys.map((key) => lookups.titleIds?.get(key)).filter((id): id is string => Boolean(id)),
+  );
+  if (ids.size === 1) return { status: "resolved", titleId: [...ids][0] };
+  if (ids.size > 1) return { status: "ambiguous", titleId: null };
+  return { status: "unresolved", titleId: null };
+}
+
 // ------------------------------------------------------------------ //
 // Per-input-shape adapters                                           //
 // ------------------------------------------------------------------ //
@@ -268,7 +303,7 @@ function fromSalesRecord(
       channel_title_jp: row.channel_title_jp ?? null,
       title_kr: row.title_kr ?? null,
       title_jp: row.title_jp ?? null,
-      title_id: lookups.titleIds?.get(String(row.title_jp).toLowerCase()) ?? null,
+      title_id: null,
       recoder: "SYSTEM",
       company: row.company ?? "RJ",
       launch_date: isoDateOrNull(row.launch_date),
@@ -400,7 +435,7 @@ function fromGroundTruth(
       channel_title_jp: strOrNull(row.channel_title_jp),
       title_kr: strOrNull(row.title_kr),
       title_jp: strOrNull(row.title_jp),
-      title_id: lookups.titleIds?.get(String(row.title_jp ?? "").toLowerCase()) ?? null,
+      title_id: null,
       updated: isoDateOrNull(row.updated),
       recoder: "SYSTEM",
       company: strOrNull(row.company) ?? "RJ",
@@ -516,7 +551,7 @@ function fromRawRecord(
       channel_title_jp: strOrNull(d.channel_title_jp ?? d.title_jp),
       title_kr: strOrNull(d.title_kr),
       title_jp: strOrNull(d.title_jp),
-      title_id: lookups.titleIds?.get(String(d.title_jp ?? "").toLowerCase()) ?? null,
+      title_id: null,
       recoder: "SYSTEM",
       company: strOrNull(d.company) ?? "RJ",
       launch_date: isoDateOrNull(d.launch_date),
@@ -585,6 +620,20 @@ export function toSalesRecords(
       });
       return;
     }
+    const isSummary = String(out.insert.note2 ?? "").includes("SUMMARY_NON_AGGREGATED");
+    if (!isSummary) {
+      const resolution = resolveMasterTitle(out.insert, ctx.lookups);
+      if (resolution.status === "resolved") {
+        out.insert.title_id = resolution.titleId;
+      } else if (ctx.requireTitleResolution) {
+        out.errors.push({
+          row_index: i,
+          platform_code: ctx.platform_code,
+          field: "title_id",
+          message: `master title ${resolution.status}`,
+        });
+      }
+    }
     inserts.push(out.insert);
     errors.push(...out.errors);
     if (out.insert.client_id === null && typeof (row as Record<string, unknown>).client_code === "string") {
@@ -608,6 +657,7 @@ export function buildLookupMaps(opts: {
   clients: Array<Database["public"]["Tables"]["clients"]["Row"]>;
   channels: Array<Database["public"]["Tables"]["channels"]["Row"]>;
   titles?: Array<Database["public"]["Tables"]["titles"]["Row"]>;
+  titleAliases?: Array<Database["public"]["Tables"]["title_aliases"]["Row"]>;
 }): LookupMaps {
   const clientIds = new Map<string, string>();
   const clientAliasesToCode = new Map<string, string>();
@@ -621,11 +671,33 @@ export function buildLookupMaps(opts: {
   const channelIds = new Map<string, string>();
   for (const ch of opts.channels) channelIds.set(ch.code, ch.id);
 
-  const titleIds = new Map<string, string>();
+  const titleCandidates = new Map<string, Set<string>>();
+  const addTitleCandidate = (value: unknown, titleId: string) => {
+    const key = foldTitleLookupKey(value);
+    if (!key) return;
+    const ids = titleCandidates.get(key) ?? new Set<string>();
+    ids.add(titleId);
+    titleCandidates.set(key, ids);
+  };
   for (const t of opts.titles ?? []) {
-    if (t.title_jp) titleIds.set(t.title_jp.toLowerCase(), t.id);
+    const title = t as unknown as {
+      id: string;
+      title_jp?: string | null;
+      title_kr?: string | null;
+      channel_title_jp?: string | null;
+    };
+    addTitleCandidate(title.title_jp, title.id);
+    addTitleCandidate(title.title_kr, title.id);
+    addTitleCandidate(title.channel_title_jp, title.id);
   }
-  return { clientIds, channelIds, titleIds, clientAliasesToCode };
+  for (const alias of opts.titleAliases ?? []) addTitleCandidate(alias.alias, alias.title_id);
+  const titleIds = new Map<string, string>();
+  const ambiguousTitleKeys = new Set<string>();
+  for (const [key, ids] of titleCandidates) {
+    if (ids.size === 1) titleIds.set(key, [...ids][0]);
+    else ambiguousTitleKeys.add(key);
+  }
+  return { clientIds, channelIds, titleIds, ambiguousTitleKeys, clientAliasesToCode };
 }
 
 /** Empty lookup maps for dry-run mode (no DB). */
@@ -634,6 +706,7 @@ export function emptyLookupMaps(): LookupMaps {
     clientIds: new Map(),
     channelIds: new Map(),
     titleIds: new Map(),
+    ambiguousTitleKeys: new Set(),
     clientAliasesToCode: new Map(),
   };
 }

@@ -30,7 +30,7 @@ function baseStore(): PreparedUploadStore {
     markParsing: async () => "updated",
     findExactDuplicates: async () => [],
     updateUpload: async () => null,
-    loadLookupRows: async () => ({ clients: [], channels: [] }),
+    loadLookupRows: async () => ({ clients: [], channels: [], titles: [], titleAliases: [] }),
     insertRawRecords: async () => [],
     listExistingSalesRecords: async () => [],
     insertSalesRecords: async () => 0,

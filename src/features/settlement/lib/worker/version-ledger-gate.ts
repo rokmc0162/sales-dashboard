@@ -16,7 +16,11 @@ import {
   PUBLICATION_COL,
   type InputV2FillResult,
 } from "../export/input-v2-filler";
-import { carryBaselineStoragePath, previousSettlementMonth } from "../export/load-input-v2-records";
+import {
+  carryBaselineStoragePath,
+  previousSettlementMonth,
+  validateRequiredSourceFamilies,
+} from "../export/load-input-v2-records";
 import type { Database } from "../supabase/types";
 import type { LocalParseStageResult } from "./local-parse-stage";
 
@@ -233,12 +237,35 @@ export async function prepareHistoricalLedgerRecords(input: {
   let baselineRows: Record<string, unknown>[];
   try { baselineRows = await loadCarryForwardBaselineRowsFromBuffer(bytes, expectedPrior); } catch { fail(); }
   if (baselineRows.length < 1) fail();
+
+  const baselineChannels = new Set(
+    baselineRows.map((row) => String(row.channel ?? "").trim()).filter(Boolean),
+  );
+  const detailUploadIds = new Set(
+    input.stage.salesRows
+      .filter((row) => !String(row.record.note2 ?? "").includes("SUMMARY_NON_AGGREGATED"))
+      .map((row) => row.objectId),
+  );
+  const missingFamilies = validateRequiredSourceFamilies(
+    baselineChannels,
+    input.stage.files.map((file) => ({
+      id: file.objectId,
+      platform_code: file.platformCode,
+      status: "parsed",
+      parsed_rows: file.parsedRowCount,
+    })),
+    detailUploadIds,
+  );
+  if (missingFamilies.length > 0) fail();
+
   const merged = mergeCarryForwardRows(
     baselineRows,
     sourceRecords(input.stage),
     input.stage.settlementMonth.slice(0, 7).replace("-", ""),
   );
-  if (merged.records.length < 1) fail();
+  if (merged.records.length < 1
+      || merged.ambiguous_title_rows > 0
+      || merged.ambiguous_type_rows > 0) fail();
   return {
     // ExcelJS baseline cells and carry cadence rules use Date objects. The
     // immutable artifact boundary intentionally accepts JSON values only, so

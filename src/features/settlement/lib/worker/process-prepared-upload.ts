@@ -25,6 +25,8 @@ import type {
   Json,
   RawUploadInsert,
   SalesRecordInsert,
+  TitleAliasRow,
+  TitleRow,
 } from "@/features/settlement/lib/supabase/types";
 
 type ClientRow = Database["public"]["Tables"]["clients"]["Row"];
@@ -45,7 +47,12 @@ export interface PreparedUploadStore {
   markParsing(uploadId: string, sha256: string): Promise<"updated" | "not_uploaded">;
   findExactDuplicates(sha256: string, month: string, uploadId: string): Promise<ExactSourceCandidate[]>;
   updateUpload(uploadId: string, fields: UploadPatch): Promise<string | null>;
-  loadLookupRows(): Promise<{ clients: ClientRow[]; channels: ChannelRow[] }>;
+  loadLookupRows(): Promise<{
+    clients: ClientRow[];
+    channels: ChannelRow[];
+    titles: TitleRow[];
+    titleAliases: TitleAliasRow[];
+  }>;
   insertRawRecords(rows: Array<{ upload_id: string; row_index: number; data: Json }>): Promise<InsertedRaw[]>;
   listExistingSalesRecords(month: string): Promise<Record<string, unknown>[]>;
   insertSalesRecords(rows: SalesRecordInsert[]): Promise<number>;
@@ -133,14 +140,31 @@ export function createSupabasePreparedUploadStore(
       return error?.message ?? null;
     },
     async loadLookupRows() {
-      const [{ data: clients, error: clientsError }, { data: channels, error: channelsError }] = await Promise.all([
+      const [
+        { data: clients, error: clientsError },
+        { data: channels, error: channelsError },
+        { data: titles, error: titlesError },
+        { data: titleAliases, error: aliasesError },
+      ] = await Promise.all([
         supabase.from("clients").select("*"),
         supabase.from("channels").select("*"),
+        supabase.from("titles").select("*"),
+        supabase.from("title_aliases").select("*"),
       ]);
-      if (clientsError || channelsError) {
-        throw new Error([clientsError?.message, channelsError?.message].filter(Boolean).join("; "));
+      if (clientsError || channelsError || titlesError || aliasesError) {
+        throw new Error([
+          clientsError?.message,
+          channelsError?.message,
+          titlesError?.message,
+          aliasesError?.message,
+        ].filter(Boolean).join("; "));
       }
-      return { clients: clients ?? [], channels: channels ?? [] };
+      return {
+        clients: (clients ?? []) as ClientRow[],
+        channels: (channels ?? []) as ChannelRow[],
+        titles: (titles ?? []) as TitleRow[],
+        titleAliases: (titleAliases ?? []) as TitleAliasRow[],
+      };
     },
     async insertRawRecords(rows) {
       const { data, error } = await supabase

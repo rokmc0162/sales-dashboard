@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 
 import {
+  APPROVED_CLIENT_CHANNEL_PAIRS,
+  approvedClientChannel,
   clientCodeToDisplay,
   loadInputV2TemplateLookups,
   platformCodeToChannel,
@@ -28,7 +30,7 @@ async function main() {
   assert.equal(platformCodeToChannel("mediado"), "mediado_sales", "mediado alias");
   assert.equal(platformCodeToChannel("ebj_line"), "ebj", "ebj_line alias");
   assert.equal(platformCodeToChannel("u_next"), "u-next", "u_next alias");
-  assert.equal(rawChannelCodeToTemplate("sb_creative"), "sb creative", "raw sb_creative alias");
+  assert.equal(rawChannelCodeToTemplate("sb_creative"), "sb_creative", "raw sb_creative canonical spelling");
   assert.equal(
     rawChannelCodeToTemplate("piccoma_gaiakuhan"),
     "piccoma_sales",
@@ -49,6 +51,22 @@ async function main() {
   assert.equal(clientCodeToDisplay("comico"), "comico JP", "comico display");
   assert.equal(clientCodeToDisplay("MBJ"), "MBJ", "client code lookup is case-insensitive");
   assert.equal(clientCodeToDisplay("unknown_client"), null, "unknown client code → null");
+
+  assert.equal(APPROVED_CLIENT_CHANNEL_PAIRS.length, 28, "all 28 operator-approved pairs are present");
+  for (const pair of APPROVED_CLIENT_CHANNEL_PAIRS) {
+    assert.deepEqual(approvedClientChannel(pair.channel), pair, `${pair.channel} resolves to approved Clients`);
+  }
+  assert.deepEqual(
+    approvedClientChannel("sb creative"),
+    { clients: "sb creative", channel: "sb_creative" },
+    "legacy channel spelling normalizes to approved channel",
+  );
+  assert.deepEqual(approvedClientChannel("beaglee"), { clients: "Beaglee", channel: "manga-kingdom" });
+  assert.deepEqual(approvedClientChannel("comico jp"), { clients: "comico JP", channel: "comico_jp" });
+  assert.equal(approvedClientChannel("BOOKLIVE"), null, "unlisted case variant fails closed");
+  assert.equal(approvedClientChannel("ｂｏｏｋｌｉｖｅ"), null, "unlisted NFKC variant fails closed");
+  assert.equal(approvedClientChannel(" Jumptoon "), null, "unlisted whitespace variant fails closed");
+  assert.equal(approvedClientChannel("unknown-channel"), null, "unknown channel fails closed");
 
   // Row-level raw channel codes resolve against the template, including
   // mixed-case codes like Jumptoon (matched case-insensitively by the loader).

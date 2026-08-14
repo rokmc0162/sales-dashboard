@@ -14,7 +14,7 @@ import {
 
 function record(title: string, amount: number): Record<string, unknown> {
   return {
-    company: "RJ", clients: "合成取引先", channel: "synthetic", channel_title_jp: title,
+    company: "RJ", clients: "合成取引先", channel: "booklive", channel_title_jp: title,
     title_jp: title, title_kr: `KR-${title}`, type: "WT", distribution_strategy: "non-ex",
     country: "JP", settlement_currency: "JPY", vehicle_currency: "KRW",
     sales_month: "2026-06-01", settlement_month: "2026-06-30", settlement_batch: "2026-06-01",
@@ -24,10 +24,25 @@ function record(title: string, amount: number): Record<string, unknown> {
   };
 }
 function stage(rows: Record<string, unknown>[]): LocalParseStageResult {
+  const objectId = "00000000-0000-4000-8000-000000000001";
   return {
-    schemaVersion: 1, settlementMonth: "2026-07-01", files: [], rawRows: [],
-    salesRows: rows.map((row, index) => ({ objectId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, position: index, sourceOrdinal: 0, record: row as never })),
-    counts: { files: 0, rawRows: 0, salesRows: rows.length, summaryFiles: 0 }, digest: "a".repeat(64),
+    schemaVersion: 1,
+    settlementMonth: "2026-07-01",
+    files: [{
+      objectId,
+      position: 0,
+      displayPath: "synthetic-booklive-detail.xlsx",
+      platformCode: "booklive",
+      detectionConfidence: 1,
+      parsedRowCount: rows.length,
+      transformedRowCount: rows.length,
+      summaryOnly: false,
+      warningCodes: [],
+    }],
+    rawRows: [],
+    salesRows: rows.map((row, index) => ({ objectId, position: 0, sourceOrdinal: index, record: row as never })),
+    counts: { files: 1, rawRows: 0, salesRows: rows.length, summaryFiles: 0 },
+    digest: "a".repeat(64),
   };
 }
 async function rejects(run: () => Promise<unknown>) {
@@ -165,6 +180,46 @@ async function main() {
     workbook.getWorksheet(electronic)!.getCell("F6").value = "１２３";
   });
   await rejects(() => validateHistoricalLedgerWorkbook({ candidate: fullWidthNumeric, ...validation }));
+  const familyRow = { ...record("작품-family", 0), channel: "Jumptoon" };
+  const familyWorkbook = await fillInputV2Template({ month: "202606", records: [familyRow] });
+  const familyBytes = Buffer.from(familyWorkbook.buffer);
+  const familyBaseline = {
+    publicationId: "00000000-0000-4000-8000-000000000002",
+    month: "2026-06-01",
+    sha256: createHash("sha256").update(familyBytes).digest("hex"),
+    bytes: familyBytes,
+  };
+  await rejects(() => prepareHistoricalLedgerRecords({
+    stage: stage([record("unrelated", 1)]),
+    baseline: familyBaseline,
+  }));
+  const shueishaObjectId = "00000000-0000-4000-8000-000000000099";
+  const stageWithShueisha = (row: Record<string, unknown>): LocalParseStageResult => ({
+    ...stage([]),
+    files: [{
+      objectId: shueishaObjectId,
+      position: 0,
+      displayPath: "synthetic.pdf",
+      platformCode: "shueisha",
+      detectionConfidence: 1,
+      parsedRowCount: 1,
+      transformedRowCount: 1,
+      summaryOnly: String(row.note2 ?? "").includes("SUMMARY_NON_AGGREGATED"),
+      warningCodes: [],
+    }],
+    salesRows: [{ objectId: shueishaObjectId, position: 0, sourceOrdinal: 0, record: row as never }],
+    counts: { files: 1, rawRows: 0, salesRows: 1, summaryFiles: 0 },
+  });
+  await rejects(() => prepareHistoricalLedgerRecords({
+    stage: stageWithShueisha({ ...familyRow, note2: "SUMMARY_NON_AGGREGATED" }),
+    baseline: familyBaseline,
+  }));
+  const familyPrepared = await prepareHistoricalLedgerRecords({
+    stage: stageWithShueisha({ ...familyRow, total_amount_jpy: 10 }),
+    baseline: familyBaseline,
+  });
+  assert.equal(familyPrepared.records.length, 1, "required family with real detail contribution passes");
+
   await rejects(() => prepareHistoricalLedgerRecords({ stage: stage([record("作品A", 100)]), baseline: { ...baseline, sha256: "f".repeat(64) } }));
   await rejects(() => prepareHistoricalLedgerRecords({ stage: stage([record("作品A", 100)]), baseline: { ...baseline, month: "2026-05-01" } }));
   console.log("test-settlement-version-ledger-gate: all assertions passed");

@@ -149,6 +149,7 @@ export type BuildLocalParseStageInput = {
   lookups: LookupMaps;
   parseFile: ParseFile;
   toSalesRecords: ToSalesRecords;
+  requireTitleResolution?: boolean;
 };
 
 function fail(code: LocalParseStageErrorCode): never {
@@ -285,6 +286,9 @@ export async function buildLocalParseStage(input: BuildLocalParseStageInput): Pr
       clientIds: new Map(input.lookups.clientIds),
       channelIds: new Map(input.lookups.channelIds),
       titleIds: input.lookups.titleIds ? new Map(input.lookups.titleIds) : undefined,
+      ambiguousTitleKeys: input.lookups.ambiguousTitleKeys
+        ? new Set(input.lookups.ambiguousTitleKeys)
+        : undefined,
       clientAliasesToCode: input.lookups.clientAliasesToCode ? new Map(input.lookups.clientAliasesToCode) : undefined,
     };
     if (typeof input.parseFile !== "function" || typeof input.toSalesRecords !== "function") fail("INVALID_INPUT");
@@ -345,6 +349,7 @@ export async function buildLocalParseStage(input: BuildLocalParseStageInput): Pr
         sales_month: parsed.sales_month,
         platform_code: parsed.platform_code,
         lookups,
+        requireTitleResolution: input.requireTitleResolution === true,
       });
     } catch {
       fail("TRANSFORM_FAILED");

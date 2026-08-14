@@ -1,3 +1,5 @@
+import { approvedClientChannel } from "./input-v2-template-lookups";
+
 const PUBLICATION_CLIENT_PATTERNS = [
   /kadokawa/i,
   /角川/i,
@@ -36,13 +38,17 @@ export function isPublicationClient(value: unknown): boolean {
 }
 
 function recordClient(record: Record<string, unknown>): unknown {
+  const channel = record.channel ?? record.channel_code;
+  if (typeof channel === "string") {
+    const approved = approvedClientChannel(channel);
+    if (approved) return approved.clients;
+  }
   return (
     record.clients ??
     record.client_display_name ??
     record.client_code ??
     record.platform_code ??
-    record.channel ??
-    record.channel_code
+    channel
   );
 }
 

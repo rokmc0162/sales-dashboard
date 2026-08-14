@@ -192,6 +192,25 @@ async function testFailClosed() {
     `expected the printed-total mismatch error, got: ${mismatched.errors.join("; ")}`,
   );
 
+  // --- two distinct amount vectors match the same printed total: never pick
+  //     the first vector just because traversal order found it first. ---
+  const ambiguousA = await makeCell([100, 200]);
+  const ambiguousB = await makeCell([100, 200], ambiguousA.stats);
+  const ambiguousRows = [detailRow(900), detailRow(900)];
+  await resolveShueishaDetailAmounts(
+    ambiguousRows,
+    [ambiguousA.cell, ambiguousB.cell],
+    300,
+    { remaining: 24 },
+  );
+  assert.deepEqual(
+    ambiguousRows.map((row) => row.payment_taxincl),
+    [900, 900],
+    "multiple exact candidate vectors must remain unresolved",
+  );
+  const ambiguous = buildShueishaParseResult(baseExtract({ detail_total: 300, jumptoon_summary_total: 300, grand_total: 600, detail_rows: ambiguousRows }));
+  assert.equal(ambiguous.records.length, 0, "ambiguous exact-sum solutions fail closed");
+
   // --- strict happy-path validation still emits records ---
   const ok = buildShueishaParseResult(baseExtract({}));
   assert.equal(ok.errors.length, 0);

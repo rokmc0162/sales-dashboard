@@ -176,8 +176,9 @@ export async function parseBooklive({ buffer }: { filename: string; buffer: Buff
         author: r["著者名"] ?? null,
         publisher: r["出版社名"] ?? null,
         raw_store: storeStr,
+        // WT/版面 is an explicit source column validated above. It is not a
+        // heuristic contract-type guess; preserve it as source provenance.
         raw_wt: wtStr,
-        note2: "TYPE_HEURISTIC",
         raw_title: String(title).trim(),
         // Amounts
         gross_jpy: total_amount_jpy,               // aggregate engine reads gross_jpy

@@ -15,6 +15,8 @@ import { fillInputV2Template } from "../src/features/settlement/lib/export/input
 
 const FIRST_DATA_ROW = 6;
 const COL = {
+  clients: 15,
+  channel: 16,
   total_amount_jpy: 21,
   fee_jpy: 22,
   before_tax_jpy: 23,
@@ -34,8 +36,8 @@ function formulaOf(v: ExcelJS.CellValue): string | null {
 async function main() {
   const base = {
     title_jp: "synthetic-title",
-    clients: "syn-client",
-    channel: "syn-channel",
+    clients: "deliberately-wrong-client",
+    channel: "booklive",
     sales_month: "2026-06-01",
     settlement_month: "2026-06-01",
   };
@@ -86,6 +88,9 @@ async function main() {
   const appendRow = ws.getRow(FIRST_DATA_ROW + 3);
   const appendIchijinshaRow = ws.getRow(FIRST_DATA_ROW + 4);
 
+  assert.equal(nullRow.getCell(COL.clients).value, "Booklive", "approved Channel overwrites conflicting Clients");
+  assert.equal(nullRow.getCell(COL.channel).value, "booklive", "approved Channel spelling is preserved");
+
   assert.equal(nullRow.getCell(COL.fee_jpy).value, 0, "absent fee_jpy keeps zero default");
   assert.equal(nullRow.getCell(COL.withholding_tax_jpy).value, 0, "absent withholding keeps zero default");
 
@@ -96,8 +101,16 @@ async function main() {
     assert.ok(formula, `universally formula-owned column ${c} ignores parser-derived value`);
     assert.ok(formula.includes(String(FIRST_DATA_ROW + 1)), `formula in column ${c} targets output row`);
   }
-  assert.equal(valueRow.getCell(COL.before_tax_income_jpy).value, 777, "explicit source-family Z exception survives");
-  assert.equal(valueRow.getCell(COL.tax_jpy).value, 66, "explicit source-family AB exception survives");
+  assert.equal(
+    formulaOf(valueRow.getCell(COL.before_tax_income_jpy).value),
+    `AB${FIRST_DATA_ROW + 1}+AC${FIRST_DATA_ROW + 1}`,
+    "Z is always the AB+AC derived total",
+  );
+  assert.equal(
+    formulaOf(valueRow.getCell(COL.tax_jpy).value),
+    `ROUNDDOWN(AC${FIRST_DATA_ROW + 1}*10%,0)`,
+    "AB is always ten percent of AC rounded down",
+  );
 
   assert.equal(valueRow.getCell(COL.fee_jpy).value, 7, "source fee remains numeric");
   assert.equal(valueRow.getCell(COL.after_tax_jpy).value, 100, "source after-tax transaction remains numeric");
@@ -115,6 +128,16 @@ async function main() {
     const cell = row.getCell(COL.total_amount_jpy);
     assert.equal(formulaOf(cell.value), null, `${label} Total has no formula`);
     assert.equal(cell.value ?? null, null, `${label} Total stays blank despite explicit source total`);
+  }
+
+  for (const invalidChannel of ["unknown-channel", "", "   ", null] as const) {
+    const record = { ...base, channel: invalidChannel } as Record<string, unknown>;
+    if (invalidChannel === null) delete record.channel;
+    await assert.rejects(
+      () => fillInputV2Template({ month: "202606", records: [record] }),
+      /unapproved Clients\/Channel contract/,
+      `blank, missing, or unknown Channel fails workbook generation closed: ${String(invalidChannel)}`,
+    );
   }
 
   console.log("test-input-v2-filler-null-blank: all assertions passed");

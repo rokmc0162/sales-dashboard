@@ -27,7 +27,7 @@ function canonicalJson(value: unknown): string {
 function sha(bytes: Buffer): string { return createHash("sha256").update(bytes).digest("hex"); }
 function record(note2: string | null, title: string): SalesRecordInsert {
   return {
-    title_jp: title, channel_title_jp: title, channel: "synthetic", clients: "synthetic-client",
+    title_jp: title, channel_title_jp: title, channel: "booklive", clients: "synthetic-client",
     note2, company: "SYN", sales_month: "2026-07-01",
     settlement_month: "2026-07-01", settlement_batch: "2026-07-01", country: "JP",
     type: "WT", distribution_strategy: "non-ex", settlement_currency: "JPY",
@@ -225,6 +225,12 @@ async function main(): Promise<void> {
       "published workbook must omit the broken external-reference helper sheet");
     assert.equal(inputSheet.getRow(6).getCell(4).text, "first");
     assert.equal(inputSheet.getRow(7).getCell(4).text, "second");
+    for (const rowNumber of [6, 7]) {
+      assert.equal(inputSheet.getCell(`AB${rowNumber}`).formula, `ROUNDDOWN(AC${rowNumber}*10%,0)`,
+        `AB${rowNumber} must retain the operator-approved 10% ROUNDDOWN formula`);
+      assert.equal(inputSheet.getCell(`Z${rowNumber}`).formula, `AB${rowNumber}+AC${rowNumber}`,
+        `Z${rowNumber} must retain the operator-approved AB+AC formula`);
+    }
     const publishedZip = await JSZip.loadAsync(publishedBytes, { checkCRC32: true });
     const workbookXml = await publishedZip.file("xl/workbook.xml")?.async("string");
     assert.ok(workbookXml, "published workbook must retain workbook metadata");
@@ -249,6 +255,43 @@ async function main(): Promise<void> {
     });
     assert.equal(realReplay.reused, true, "real filler and LibreOffice evidence replay deterministically");
     assert.equal(realReplay.evidence.workbookArchiveDigest, realPipeline.evidence.workbookArchiveDigest);
+
+    const dualTemplatePath = path.resolve(
+      "src/features/settlement/data/templates/input_jp_2026_v2_template.xlsx",
+    );
+    const dualSheetFill = await fillInputV2Template({
+      month: "202606",
+      templatePath: dualTemplatePath,
+      records: [
+        { ...record(null, "electronic-formula"), clients: "shueisha", channel: "booklive", withholding_tax_jpy: 11, after_tax_income_jpy_a: 745 },
+        { ...record(null, "publication-formula"), clients: "Booklive", channel: "shueisha", withholding_tax_jpy: 13, after_tax_income_jpy_a: 965 },
+      ],
+    });
+    assert.equal(dualSheetFill.electronic_rows, 1);
+    assert.equal(dualSheetFill.publication_rows, 1);
+    const dualOffice = await verifyWorkbookWithLibreOffice({
+      buffer: dualSheetFill.buffer,
+      workRoot: path.join(root, "office-dual-sheet"),
+      validateWorkbook: validateSettlementWorkbook,
+      archiveDigest: xlsxArchiveDigest,
+      sofficePath: "/opt/homebrew/bin/soffice",
+      timeoutMs: 60_000,
+    });
+    const dualWorkbook = new ExcelJS.Workbook();
+    await dualWorkbook.xlsx.load(dualOffice.verifiedWorkbook as unknown as ExcelJS.Buffer);
+    for (const [sheetName, withholding, afterTax, expectedClients, expectedChannel] of [
+      [dualSheetFill.electronic_sheet, 11, 745, "Booklive", "booklive"],
+      [dualSheetFill.publication_sheet, 13, 965, "shueisha", "shueisha"],
+    ] as const) {
+      const sheet = dualWorkbook.getWorksheet(sheetName);
+      assert.ok(sheet, `${sheetName} survives LibreOffice`);
+      assert.equal(sheet.getCell("O6").value, expectedClients, `${sheetName} Clients follows approved Channel`);
+      assert.equal(sheet.getCell("P6").value, expectedChannel, `${sheetName} keeps approved Channel`);
+      assert.equal(sheet.getCell("AA6").value, withholding, `${sheetName} AA source value is preserved`);
+      assert.equal(sheet.getCell("AC6").value, afterTax, `${sheetName} AC source value is preserved`);
+      assert.equal(sheet.getCell("AB6").formula, "ROUNDDOWN(AC6*10%,0)", `${sheetName} AB formula is preserved`);
+      assert.equal(sheet.getCell("Z6").formula, "AB6+AC6", `${sheetName} Z formula is preserved`);
+    }
 
     const blankBuffer = await workbookBuffer("", "");
     await expectCode(() => generateLocalWorkbookArtifact({

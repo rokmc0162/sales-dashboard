@@ -561,7 +561,7 @@ async function assertShueishaMarkerDoesNotLeakToWorkbook() {
       recoder: markedText,
       company: markedText,
       clients: markedText,
-      channel: markedText,
+      channel: "booklive",
       type: markedText,
       distribution_strategy: markedText,
       settlement_currency: "JPY",

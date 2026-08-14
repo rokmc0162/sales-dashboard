@@ -50,6 +50,63 @@ export interface InputV2TemplateLookups {
   titleByChannelTitle: Map<string, TemplateTitleInfo>;
 }
 
+/** Operator-approved Clients ↔ Channel contract for final INPUT workbooks. */
+export const APPROVED_CLIENT_CHANNEL_PAIRS = [
+  { clients: "Amazia", channel: "mangabang" },
+  { clients: "Amutus", channel: "mechacomic" },
+  { clients: "Beaglee", channel: "manga-kingdom" },
+  { clients: "Booklive", channel: "booklive" },
+  { clients: "Booklive", channel: "bookcomi" },
+  { clients: "comico JP", channel: "comico_jp" },
+  { clients: "comico JP", channel: "comico_ads" },
+  { clients: "DMM", channel: "dmm" },
+  { clients: "DMM", channel: "dmm_fanza" },
+  { clients: "ichijinsha", channel: "ichijinsha" },
+  { clients: "lezhin ent JP", channel: "beltoon" },
+  { clients: "lezhin ent JP", channel: "lezhin" },
+  { clients: "Line Digital Frontier", channel: "ebj" },
+  { clients: "Line Digital Frontier", channel: "ebj_webtoon" },
+  { clients: "Line Digital Frontier", channel: "line" },
+  { clients: "Line Digital Frontier", channel: "line_ads" },
+  { clients: "MBJ", channel: "mbj_sales" },
+  { clients: "mediado", channel: "mediado_sales" },
+  { clients: "NTTsolmare", channel: "cmoa" },
+  { clients: "PAPYLESS", channel: "renta" },
+  { clients: "Piccoma", channel: "piccoma" },
+  { clients: "Piccoma", channel: "piccoma_ads" },
+  { clients: "Piccoma", channel: "piccoma_sales" },
+  { clients: "sb creative", channel: "sb_creative" },
+  { clients: "shueisha", channel: "shueisha" },
+  { clients: "shueisha", channel: "Jumptoon" },
+  { clients: "shueisha", channel: "manga mee" },
+  { clients: "U-NEXT", channel: "u-next" },
+] as const;
+
+export type ApprovedClientChannel = (typeof APPROVED_CLIENT_CHANNEL_PAIRS)[number];
+
+const APPROVED_PARTY_BY_CHANNEL = new Map<string, ApprovedClientChannel>(
+  APPROVED_CLIENT_CHANNEL_PAIRS.map((pair) => [pair.channel, pair]),
+);
+
+/** Known parser/carry spellings only; values are exact operator-approved channels. */
+const APPROVED_CHANNEL_ALIASES: Record<string, string> = {
+  line_ad: "line_ads",
+  ebj_line: "ebj",
+  mediado: "mediado_sales",
+  mbj: "mbj_sales",
+  u_next: "u-next",
+  "sb creative": "sb_creative",
+  beaglee: "manga-kingdom",
+  "comico jp": "comico_jp",
+  piccoma_gaiakuhan: "piccoma_sales",
+  comico: "comico_jp",
+};
+
+export function approvedClientChannel(channel: string): ApprovedClientChannel | null {
+  const canonical = APPROVED_CHANNEL_ALIASES[channel] ?? channel;
+  return APPROVED_PARTY_BY_CHANNEL.get(canonical) ?? null;
+}
+
 /**
  * raw_uploads.platform_code (parser codes) → template channel code.
  * Codes missing from this table pass through lowercased, since most parser
@@ -63,7 +120,7 @@ const PLATFORM_CODE_TO_CHANNEL: Record<string, string> = {
   piccoma_ads: "piccoma_ads",
   mediado: "mediado_sales",
   mbj: "mbj_sales",
-  sb_creative: "sb creative",
+  sb_creative: "sb_creative",
   u_next: "u-next",
   dmm: "dmm",
   booklive: "booklive",
@@ -89,7 +146,7 @@ export function platformCodeToChannel(platformCode: string): string {
  * to the channel spelling used by the golden INPUT template.
  */
 const RAW_CHANNEL_CODE_TO_TEMPLATE: Record<string, string> = {
-  sb_creative: "sb creative",
+  sb_creative: "sb_creative",
   piccoma_gaiakuhan: "piccoma_sales",
 };
 

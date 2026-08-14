@@ -94,8 +94,8 @@ async function main() {
         } satisfies ExcelJS.CellHyperlinkValue,
         title_kr: unsupported,
         title_jp: sharedFormulaWithoutResult,
-        clients: "synthetic-client",
-        channel: "synthetic-channel",
+        clients: "deliberately-wrong-client",
+        channel: "booklive",
         type: "synthetic-type",
         note1: richText,
         recoder: { unsupported: true },
@@ -111,6 +111,8 @@ async function main() {
   assert.equal(row.getCell(2).value, channelTitle, "channel title uses hyperlink text");
   assert.equal(row.getCell(3).value, channelTitle, "title_kr falls back to channel_title_jp");
   assert.equal(row.getCell(4).value, channelTitle, "title_jp falls back to channel_title_jp");
+  assert.equal(row.getCell(15).value, "Booklive", "approved Channel overrides conflicting Clients");
+  assert.equal(row.getCell(16).value, "booklive", "approved Channel is preserved");
   assert.equal(row.getCell(45).value, "Synthetic rich title", "rich text is joined in output");
   assert.equal(row.getCell(6).value, null, "unsupported object is skipped in output");
 

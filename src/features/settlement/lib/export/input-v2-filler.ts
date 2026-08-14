@@ -7,6 +7,7 @@ import {
   stripShueishaOcrTitleMarker,
 } from "./input-v2-carry-forward";
 import { splitInputV2Records } from "./input-v2-routing";
+import { approvedClientChannel } from "./input-v2-template-lookups";
 
 /**
  * Sanitized INPUT v3 workbook. It has a blank G column, so the 202605 baseline
@@ -313,6 +314,11 @@ function writeRecord(
   const normalizedChannel = normalizeChannel(rec);
   const sourceOwnsTotal = SOURCE_OWNED_TOTAL_CHANNELS.has(normalizedChannel);
   const sourceHasNoFee = NO_SOURCE_FEE_CHANNELS.has(normalizedChannel);
+  const sourceChannel = str(rec, "channel", "channel_code");
+  const approvedParty = sourceChannel === null ? null : approvedClientChannel(sourceChannel);
+  if (!approvedParty) {
+    throw new Error("unapproved Clients/Channel contract");
+  }
   const values: Record<number, Prim> = {
     [col.unique_identifier]: str(rec, "unique_identifier", "unique_id"),
     [col.channel_title_jp]: str(rec, "channel_title_jp", "title_jp"),
@@ -328,8 +334,8 @@ function writeRecord(
     [col.settlement_month]: toDate(pick(rec, "settlement_month")),
     [col.deposit_month]: toDate(pick(rec, "deposit_month")),
     [col.country]: str(rec, "country") ?? "JP",
-    [col.clients]: str(rec, "clients", "client_display_name", "client_code"),
-    [col.channel]: str(rec, "channel", "channel_code"),
+    [col.clients]: approvedParty?.clients ?? str(rec, "clients", "client_display_name", "client_code"),
+    [col.channel]: approvedParty?.channel ?? sourceChannel,
     [col.type]: str(rec, "type"),
     [col.distribution_strategy]: str(rec, "distribution_strategy"),
     [col.settlement_currency]: str(rec, "settlement_currency") ?? "JPY",
@@ -414,6 +420,16 @@ function writeRecord(
       cell.value = { formula: adjustFormula(formula, row.number) } as ExcelJS.CellFormulaValue;
     }
   }
+
+  // Operator-approved ledger formulas. These columns are derived in the final
+  // INPUT workbook and must never be replaced by parser/carry-forward values:
+  // AB = 10% of AC rounded down; Z = AB + AC (withholding AA excluded).
+  row.getCell(col.tax_jpy).value = {
+    formula: `ROUNDDOWN(AC${row.number}*10%,0)`,
+  } as ExcelJS.CellFormulaValue;
+  row.getCell(col.before_tax_income_jpy).value = {
+    formula: `AB${row.number}+AC${row.number}`,
+  } as ExcelJS.CellFormulaValue;
 }
 
 function stretchSubtotalRanges(ws: ExcelJS.Worksheet, finalRow: number, maxCol: number) {

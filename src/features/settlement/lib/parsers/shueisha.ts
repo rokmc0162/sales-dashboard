@@ -242,11 +242,12 @@ function levenshtein(a: string, b: string): number {
   return prev[b.length];
 }
 
-/** OCR noise tolerance for scanned title cells, including short title keys. */
+/** Conservative OCR-noise tolerance. Short or substantially different keys never merge. */
 function sameShueishaTitle(a: string, b: string): boolean {
   if (a === b) return true;
   const maxLen = Math.max(a.length, b.length);
-  return levenshtein(a, b) <= Math.max(2, Math.floor(maxLen * 0.45));
+  if (Math.min(a.length, b.length) < 8 || Math.abs(a.length - b.length) > 1) return false;
+  return levenshtein(a, b) <= 1 && 1 / maxLen <= 0.15;
 }
 
 /**
@@ -714,30 +715,32 @@ function pageAmountReader(worker: OcrWorker, page: SourcePage): AmountVariantRea
 }
 
 function chooseAmountsBySum(candidates: number[][], target: number): number[] | null {
-  // Printed amounts are positive integers, so only safe positive readings
-  // may enter the sum search; a row with no positive candidate cannot be
-  // solved yet, so return null and let bounded fallback keep expanding.
-  // Never admit a sentinel like -1 — it could cancel a misread positive
-  // (-1 + 501 === 500), stop fallback early, and strand unresolved rows.
-  // Positive-only candidates also keep the sum > target prune sound.
-  const lists = candidates.map((list) =>
-    list.filter((amount) => Number.isSafeInteger(amount) && amount > 0),
-  );
+  // Printed amounts are positive integers. A solution is usable only when the
+  // entire candidate matrix has exactly one distinct positive-integer vector
+  // that equals the independently printed target. Multiple exact vectors are
+  // ambiguous evidence and must continue to fallback/vision or fail closed.
+  const lists = candidates.map((list) => [
+    ...new Set(list.filter((amount) => Number.isSafeInteger(amount) && amount > 0)),
+  ]);
   if (lists.some((list) => list.length === 0)) return null;
-  const memo = new Set<string>();
-  const dfs = (index: number, sum: number, picked: number[]): number[] | null => {
-    if (sum > target) return null;
-    if (index === lists.length) return sum === target ? picked : null;
-    const key = `${index}:${sum}`;
-    if (memo.has(key)) return null;
-    for (const amount of lists[index]) {
-      const found = dfs(index + 1, sum + amount, [...picked, amount]);
-      if (found) return found;
+  let solution: number[] | null = null;
+  let solutionCount = 0;
+  const dfs = (index: number, sum: number, picked: number[]): void => {
+    if (sum > target || solutionCount > 1) return;
+    if (index === lists.length) {
+      if (sum === target) {
+        solution = picked;
+        solutionCount += 1;
+      }
+      return;
     }
-    memo.add(key);
-    return null;
+    for (const amount of lists[index]) {
+      dfs(index + 1, sum + amount, [...picked, amount]);
+      if (solutionCount > 1) return;
+    }
   };
-  return dfs(0, 0, []);
+  dfs(0, 0, []);
+  return solutionCount === 1 ? solution : null;
 }
 
 async function ocrLinesAboveTable(

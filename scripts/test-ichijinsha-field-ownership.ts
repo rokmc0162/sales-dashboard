@@ -44,7 +44,7 @@ async function testFillerOwnership() {
     },
     { ...base, unique_identifier: "jump-fee", channel: "Jumptoon", fee_jpy: 0 },
     { ...base, unique_identifier: "mee-fee", channel: "manga mee", fee_jpy: 0 },
-    { ...base, unique_identifier: "syn-other", channel: "syn-channel", clients: "syn-client" },
+    { ...base, unique_identifier: "syn-other", channel: "booklive", clients: "deliberately-wrong-client" },
   ];
 
   const { buffer, electronic_sheet } = await fillInputV2Template({ month: "202606", records });
