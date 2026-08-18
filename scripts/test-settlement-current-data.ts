@@ -393,43 +393,15 @@ async function main() {
     readFile(new URL("../app/api/settlement/export-v2/[month]/route.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(settlementClient, /3\. 현재 정산 데이터/);
-  assert.match(settlementClient, /3\. 現在の精算データ/);
-  assert.match(settlementClient, /fetchCurrentSettlementStatus\(month, controller\.signal\)/);
-  assert.match(settlementClient, /new AbortController\(\)/);
+  // The "3. 현재 정산 데이터 / 現在の精算データ" section was removed from the
+  // settlement page: operators review the organized Excel produced by step 2.
+  assert.doesNotMatch(
+    settlementClient,
+    /현재 정산 데이터|現在の精算データ|fetchCurrentSettlementStatus|currentStatus/,
+    "the removed current-data section must not return to the settlement page",
+  );
   assert.match(currentStatusClient, /fetchImpl\(`\/api\/settlement\/current-status\/\$\{month\}`, \{ signal \}\)/);
   assert.match(currentStatusClient, /const MAX_ATTEMPTS = 3/);
-  const errorBranchStart = settlementClient.indexOf(") : currentStatusError ? (");
-  const currentDataBranchStart = settlementClient.indexOf(") : currentStatus && currentStatus.recordCount === 0");
-  assert.ok(errorBranchStart >= 0 && currentDataBranchStart > errorBranchStart);
-  const errorBranch = settlementClient.slice(errorBranchStart, currentDataBranchStart);
-  assert.match(errorBranch, /onClick=\{\(\) => setCurrentStatusVersion\(\(version\) => version \+ 1\)\}/);
-  assert.match(errorBranch, /다시 시도/);
-  assert.match(errorBranch, /再試行/);
-  assert.doesNotMatch(errorBranch, /export-current|openPreviewWindow/, "data actions must stay hidden in the error branch");
-  assert.doesNotMatch(settlementClient, /preview-v2/);
-  assert.equal(
-    [...settlementClient.matchAll(
-      /if \(terminal\.status === 'completed' \|\| terminal\.status === 'completed_with_warnings'\) \{\s*setMonthPlatformsVersion\([^;]+;\s*\}\s*setCurrentStatusVersion/g,
-    )].length,
-    2,
-    "current status must refresh after recovered and newly started jobs reach any terminal state",
-  );
-  assert.match(
-    settlementClient,
-    /setMonthPlatformsVersion\(\(v\) => v \+ 1\);\s*setCurrentStatusVersion\(\(v\) => v \+ 1\);/,
-  );
-  assert.match(settlementClient, /나카타니 확인용 Excel 다운로드/);
-  assert.match(settlementClient, /中谷さん確認用Excelをダウンロード/);
-  assert.match(settlementClient, /中谷さん確認用の未確定版/);
-  assert.match(settlementClient, /最終精算書ではありません/);
-  assert.match(settlementClient, /완전성 검사 후 최종 Excel/);
-  assert.match(settlementClient, /完全性検査後の最終Excel/);
-  assert.ok(
-    settlementClient.indexOf("/api/settlement/export-current/")
-      < settlementClient.indexOf("/api/settlement/export-v2/"),
-    "current workbook must be the primary download action",
-  );
 
   assert.match(previewTable, /sourceWarnings\?: string\[\]/);
   assert.match(previewWindow, /나카타니 확인용 Excel/);
