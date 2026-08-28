@@ -18,6 +18,11 @@ import {
   verifySession,
 } from "../src/lib/session";
 
+/** NODE_ENV is declared read-only by the Next.js ambient types; tests need to set it. */
+function setNodeEnv(value: string) {
+  (process.env as Record<string, string | undefined>).NODE_ENV = value;
+}
+
 const SECRET_A = "unit-test-secret-aaaaaaaaaaaaaaaaaaaaaaaa";
 const SECRET_B = "unit-test-secret-bbbbbbbbbbbbbbbbbbbbbbbb";
 
@@ -31,7 +36,7 @@ function resetEnv() {
   process.env.SESSION_SECRET = SECRET_A;
   delete process.env.SESSION_SECRET_PREVIOUS;
   delete process.env.ALLOW_TEMP_LOGIN;
-  process.env.NODE_ENV = "test";
+  setNodeEnv("test");
 }
 
 async function roundTrip() {
@@ -173,14 +178,14 @@ async function failClosed() {
     "ALLOW_TEMP_LOGIN alone must not unlock the dev secret",
   );
 
-  process.env.NODE_ENV = "production";
+  setNodeEnv("production");
   await assert.rejects(
     () => signSession(CLAIMS),
     SessionSecretMissingError,
     "a production build must never use the dev secret",
   );
 
-  process.env.NODE_ENV = "development";
+  setNodeEnv("development");
   assert.ok(
     await verifySession(await signSession(CLAIMS)),
     "development + ALLOW_TEMP_LOGIN may use the dev secret",

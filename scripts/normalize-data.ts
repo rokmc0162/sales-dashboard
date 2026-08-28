@@ -38,9 +38,8 @@ async function main() {
   for (const [from, to] of Object.entries(CHANNEL_FIXES)) {
     const { count } = await supabase
       .from('daily_sales_v2')
-      .update({ channel: to })
-      .eq('channel', from)
-      .select('*', { count: 'exact', head: true });
+      .update({ channel: to }, { count: 'exact' })
+      .eq('channel', from);
     console.log(`  ${from} → ${to}: ${count ?? 0}행`);
   }
 
@@ -70,9 +69,8 @@ async function main() {
     if (normalized !== original) {
       const { count } = await supabase
         .from('daily_sales_v2')
-        .update({ title_jp: normalized })
-        .eq('title_jp', original)
-        .select('*', { count: 'exact', head: true });
+        .update({ title_jp: normalized }, { count: 'exact' })
+        .eq('title_jp', original);
       console.log(`  "${original}" → "${normalized}" (${count}행)`);
       fixed++;
     }

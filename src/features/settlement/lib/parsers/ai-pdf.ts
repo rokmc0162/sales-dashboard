@@ -61,6 +61,16 @@ async function writeCache(sha: string, payload: unknown): Promise<void> {
   }
 }
 
+/**
+ * Model used for PDF extraction, routed through the Vercel AI Gateway
+ * (the `anthropic/` prefix selects the provider — no provider SDK needed).
+ *
+ * Kept here rather than inline at the call site so the model can be changed or
+ * pinned per deployment without touching parser logic. Changing it changes
+ * extraction output, so re-run `npm run settlement:compare-golden` afterwards.
+ */
+export const AI_PDF_MODEL = process.env.SETTLEMENT_AI_PDF_MODEL || "anthropic/claude-sonnet-4-6";
+
 export interface AiPdfOptions<T> {
   /** File bytes */
   buffer: Buffer;
@@ -70,7 +80,7 @@ export interface AiPdfOptions<T> {
   schema: z.ZodType<T>;
   /** System/user prompt explaining what to extract */
   prompt: string;
-  /** Override model. Defaults to Claude Sonnet 4.6 via the AI Gateway. */
+  /** Override the model for one call. Defaults to AI_PDF_MODEL. */
   model?: string;
 }
 
@@ -81,7 +91,7 @@ export interface AiPdfOptions<T> {
  */
 export async function extractPdfWithAI<T>(opts: AiPdfOptions<T>): Promise<T> {
   const { buffer, schema, prompt } = opts;
-  const modelId = opts.model ?? "anthropic/claude-sonnet-4-6";
+  const modelId = opts.model ?? AI_PDF_MODEL;
 
   const sha = sha256(buffer);
   const cached = await readCache<T>(sha);

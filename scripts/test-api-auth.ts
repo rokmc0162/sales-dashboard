@@ -9,10 +9,15 @@ import assert from "node:assert/strict";
 import { readCookie, requireApiAuth } from "../src/lib/api-auth";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
 
+/** NODE_ENV is declared read-only by the Next.js ambient types; tests need to set it. */
+function setNodeEnv(value: string) {
+  (process.env as Record<string, string | undefined>).NODE_ENV = value;
+}
+
 process.env.SESSION_SECRET = "unit-test-secret-cccccccccccccccccccccccc";
 delete process.env.SESSION_SECRET_PREVIOUS;
 delete process.env.ALLOW_TEMP_LOGIN;
-process.env.NODE_ENV = "test";
+setNodeEnv("test");
 
 const HOST = "rvjp-dashboard.vercel.app";
 

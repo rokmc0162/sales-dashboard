@@ -4,23 +4,27 @@ import { createClient } from '@supabase/supabase-js';
 
 config({ path: path.resolve(import.meta.dirname, '..', '.env.local') });
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env.local');
+  console.error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local');
   process.exit(1);
 }
 
+// Narrowed copies: the guard above cannot follow the consts into main().
+const supabaseUrl: string = SUPABASE_URL;
+const supabaseAnonKey: string = SUPABASE_ANON_KEY;
+
 async function main() {
-  const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const sb = createClient(supabaseUrl, supabaseAnonKey);
 
   const { data, error } = await sb.rpc('get_title_summaries');
   if (error) { console.error(error); process.exit(1); }
 
   const channelCounts = new Map<string, number>();
-  for (const row of data as Record<string, unknown>[]) {
-    for (const ch of row.channels) {
+  for (const row of (data ?? []) as { channels?: string[] }[]) {
+    for (const ch of row.channels ?? []) {
       channelCounts.set(ch, (channelCounts.get(ch) ?? 0) + 1);
     }
   }
