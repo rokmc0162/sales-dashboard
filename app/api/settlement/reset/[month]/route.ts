@@ -24,7 +24,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ month: string }> },
 ) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const { month } = await params;

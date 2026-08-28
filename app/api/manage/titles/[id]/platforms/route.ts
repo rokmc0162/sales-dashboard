@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 /**
  * GET /api/manage/titles/[id]/platforms
@@ -11,9 +12,12 @@ import { supabaseServer } from '@/lib/supabase-server';
  * @dynamic force-dynamic (캐시 없음)
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN" });
+  if (unauthorized) return unauthorized;
+
   const { id } = await params;
 
   const { data, error } = await supabaseServer
@@ -36,6 +40,9 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const { id } = await params;
   const body = await request.json();
   const { platform_id, launch_date } = body;
@@ -71,6 +78,9 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const { id } = await params;
   const body = await request.json();
   const { platform_id } = body;

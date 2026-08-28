@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const dynamic = 'force-dynamic';
 
-const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
-const TEMP_ACCESS_TOKEN = 'rvjp-temporary-mock-access-token';
 const SAFE_SELECT = [
   'id',
   'source_sheet',
@@ -37,28 +36,6 @@ function normalizeSearch(value: string | null): string {
   return (value ?? '').trim().toLocaleLowerCase();
 }
 
-async function requireValidAccessToken(request: NextRequest): Promise<boolean> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return false;
-  const token = authHeader.slice('Bearer '.length).trim();
-  if (!token) return false;
-
-  // Temporary app-wide fallback token used by the current login flow.
-  // Keep this scoped to authenticated API checks; do not rely on cookie presence.
-  if (token === TEMP_ACCESS_TOKEN) return true;
-
-  if (!AUTH0_DOMAIN) return false;
-  try {
-    const res = await fetch(`https://${AUTH0_DOMAIN}/userinfo`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: 'no-store',
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -85,9 +62,8 @@ function getContentMasterSource() {
  * @returns { rows, count }
  */
 export async function GET(request: NextRequest) {
-  if (!(await requireValidAccessToken(request))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
 
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));

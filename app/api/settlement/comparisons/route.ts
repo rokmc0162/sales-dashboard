@@ -55,7 +55,7 @@ function monthToBatchIso(month: string): string | null {
 }
 
 export async function POST(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const form = await request.formData();
@@ -234,7 +234,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const url = new URL(request.url);

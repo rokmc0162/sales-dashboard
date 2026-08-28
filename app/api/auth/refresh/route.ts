@@ -1,15 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { attachSessionCookie, clearAuthCookies, LEGACY_REFRESH_COOKIE } from "@/lib/api-auth";
+
 const ROLES_NAMESPACE = "https://api.riverse.net/roles";
 
-function extractRoles(accessToken: string): string[] {
+/**
+ * Reads claims out of an Auth0 access token WITHOUT verifying its signature.
+ * Only valid on a token that just came back from Auth0's token endpoint.
+ */
+function extractClaims(accessToken: string): {
+  sub: string;
+  email: string;
+  roles: string[];
+} {
   try {
     const payload = JSON.parse(
       Buffer.from(accessToken.split(".")[1], "base64url").toString(),
     );
-    return payload[ROLES_NAMESPACE] ?? [];
+    return {
+      sub: typeof payload.sub === "string" ? payload.sub : "",
+      email: typeof payload.email === "string" ? payload.email : "",
+      roles: payload[ROLES_NAMESPACE] ?? [],
+    };
   } catch {
-    return [];
+    return { sub: "", email: "", roles: [] };
   }
 }
 
@@ -21,17 +35,23 @@ const TEMP_ACCESS_TOKEN = "rvjp-temporary-mock-access-token";
 const TEMP_REFRESH_TOKEN = "rvjp-temporary-mock-refresh-token";
 
 export async function POST(request: NextRequest) {
-  const refreshToken = request.cookies.get("X-REFRESH-TOKEN")?.value;
+  const refreshToken = request.cookies.get(LEGACY_REFRESH_COOKIE)?.value;
   if (!refreshToken) {
     return NextResponse.json({ error: "No refresh token" }, { status: 401 });
   }
 
   // TODO: 임시 우회 로그인입니다. 운영 Auth0 복구 후 제거하세요.
   if (refreshToken === TEMP_REFRESH_TOKEN) {
-    return NextResponse.json({
+    const response = NextResponse.json({
       accessToken: TEMP_ACCESS_TOKEN,
       expiresIn: REFRESH_TOKEN_MAX_AGE,
     });
+    await attachSessionCookie(response, {
+      sub: "temporary|riverse",
+      email: "temporary@riverse.local",
+      roles: ["ADMIN"],
+    });
+    return response;
   }
 
   const auth0Res = await fetch(`https://${AUTH0_DOMAIN}/oauth/token`, {
@@ -48,34 +68,20 @@ export async function POST(request: NextRequest) {
   const data = await auth0Res.json();
 
   if (!auth0Res.ok) {
-    const response = NextResponse.json(
-      { error: "Refresh failed" },
-      { status: 401 },
-    );
-    response.cookies.set("X-REFRESH-TOKEN", "", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 0,
-    });
+    const response = NextResponse.json({ error: "Refresh failed" }, { status: 401 });
+    clearAuthCookies(response);
     return response;
   }
 
-  // ADMIN role 체크 — role이 제거된 사용자는 refresh 시 차단
-  const roles = extractRoles(data.access_token);
+  // ADMIN role 체크 — role이 제거된 사용자는 refresh 시 차단.
+  // 세션은 stateless이므로 이 재검사가 상류 권한 변경을 반영하는 유일한 지점이다.
+  const { sub, email, roles } = extractClaims(data.access_token);
   if (!roles.includes("ADMIN")) {
     const forbidden = NextResponse.json(
       { error: "관리자 권한이 없습니다." },
       { status: 403 },
     );
-    forbidden.cookies.set("X-REFRESH-TOKEN", "", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 0,
-    });
+    clearAuthCookies(forbidden);
     return forbidden;
   }
 
@@ -86,7 +92,7 @@ export async function POST(request: NextRequest) {
 
   // Refresh Token Rotation
   if (data.refresh_token) {
-    response.cookies.set("X-REFRESH-TOKEN", data.refresh_token, {
+    response.cookies.set(LEGACY_REFRESH_COOKIE, data.refresh_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -94,6 +100,10 @@ export async function POST(request: NextRequest) {
       maxAge: REFRESH_TOKEN_MAX_AGE,
     });
   }
+
+  // This is also the migration path: a user who still holds only the legacy
+  // refresh cookie picks up a session here on the app's first refresh call.
+  await attachSessionCookie(response, { sub: sub || "auth0", email, roles });
 
   return response;
 }

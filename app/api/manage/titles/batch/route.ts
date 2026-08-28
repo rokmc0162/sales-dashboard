@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 /**
  * PUT /api/manage/titles/batch
@@ -11,6 +12,9 @@ import { supabaseServer } from '@/lib/supabase-server';
  * @dynamic force-dynamic (캐시 없음)
  */
 export async function PUT(request: Request) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const body = await request.json();
   const { ids, updates } = body;
 

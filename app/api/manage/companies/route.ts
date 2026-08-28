@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 /**
  * GET /api/manage/companies
@@ -9,7 +10,10 @@ import { supabaseServer } from '@/lib/supabase-server';
  * @returns { id, name, title_count }[]
  * @dynamic force-dynamic (캐시 없음)
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN" });
+  if (unauthorized) return unauthorized;
+
   const { data, error } = await supabaseServer
     .from('production_companies')
     .select('*, titles(count)')
@@ -33,6 +37,9 @@ export async function GET() {
  * @returns 생성된 제작사 또는 { ok: true }
  */
 export async function POST(req: NextRequest) {
+  const unauthorized = await requireApiAuth(req, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const body = await req.json();
 
   if (body.action === 'merge') {
@@ -75,6 +82,9 @@ export async function POST(req: NextRequest) {
  * @returns 수정된 제작사 레코드
  */
 export async function PUT(req: NextRequest) {
+  const unauthorized = await requireApiAuth(req, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const body = await req.json();
   const { id, ...updates } = body;
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
@@ -97,6 +107,9 @@ export async function PUT(req: NextRequest) {
  * @returns { ok: true }
  */
 export async function DELETE(req: NextRequest) {
+  const unauthorized = await requireApiAuth(req, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });

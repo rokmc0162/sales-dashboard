@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const revalidate = 300;
 
@@ -9,7 +10,10 @@ export const revalidate = 300;
  * @returns GrowthAlertRow[] — { title_jp, title_kr, this_month, last_month, growth_pct }
  * @cache revalidate 300초 (5분)
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
+
   // RPC has type mismatch (numeric vs bigint), query directly instead
   const now = new Date();
   const thisMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;

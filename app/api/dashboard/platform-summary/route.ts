@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const revalidate = 300;
 
@@ -9,7 +10,10 @@ export const revalidate = 300;
  * @returns PlatformSummaryRow[] — { channel, total_sales, title_count, avg_daily }
  * @cache revalidate 300초 (5분)
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { data, error } = await supabaseServer.rpc('get_platform_sales_summary');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);

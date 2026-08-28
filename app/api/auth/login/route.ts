@@ -1,15 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { attachSessionCookie, LEGACY_REFRESH_COOKIE } from "@/lib/api-auth";
+
 const ROLES_NAMESPACE = "https://api.riverse.net/roles";
 
-function extractRoles(accessToken: string): string[] {
+/**
+ * Reads claims out of an Auth0 access token WITHOUT verifying its signature.
+ *
+ * Only ever call this on a token that just came back from Auth0's own token
+ * endpoint over TLS — that response is the trust boundary. Never call it on a
+ * token supplied by a caller.
+ */
+function extractClaims(accessToken: string): { sub: string; roles: string[] } {
   try {
     const payload = JSON.parse(
       Buffer.from(accessToken.split(".")[1], "base64url").toString(),
     );
-    return payload[ROLES_NAMESPACE] ?? [];
+    return {
+      sub: typeof payload.sub === "string" ? payload.sub : "",
+      roles: payload[ROLES_NAMESPACE] ?? [],
+    };
   } catch {
-    return [];
+    return { sub: "", roles: [] };
   }
 }
 
@@ -38,12 +50,20 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    response.cookies.set("X-REFRESH-TOKEN", TEMP_REFRESH_TOKEN, {
+    response.cookies.set(LEGACY_REFRESH_COOKIE, TEMP_REFRESH_TOKEN, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
       maxAge: REFRESH_TOKEN_MAX_AGE,
+    });
+
+    // The temporary login grants full access today, so the session mirrors that
+    // until the bypass is removed.
+    await attachSessionCookie(response, {
+      sub: "temporary|riverse",
+      email: "temporary@riverse.local",
+      roles: ["ADMIN"],
     });
 
     return response;
@@ -73,7 +93,7 @@ export async function POST(request: NextRequest) {
   }
 
   // ADMIN role 체크
-  const roles = extractRoles(data.access_token);
+  const { sub, roles } = extractClaims(data.access_token);
   if (!roles.includes("ADMIN")) {
     return NextResponse.json(
       { error: "관리자 권한이 없습니다. 관리자에게 문의하세요." },
@@ -86,13 +106,15 @@ export async function POST(request: NextRequest) {
     expiresIn: data.expires_in,
   });
 
-  response.cookies.set("X-REFRESH-TOKEN", data.refresh_token, {
+  response.cookies.set(LEGACY_REFRESH_COOKIE, data.refresh_token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: REFRESH_TOKEN_MAX_AGE,
   });
+
+  await attachSessionCookie(response, { sub: sub || email, email, roles });
 
   return response;
 }

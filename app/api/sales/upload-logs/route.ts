@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +10,10 @@ export const dynamic = 'force-dynamic';
  * @returns UploadLog[] — 업로드 로그 배열
  * @dynamic force-dynamic (캐시 없음)
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { data, error } = await supabaseServer
     .from('upload_logs')
     .select('*')
@@ -27,6 +31,9 @@ export async function GET() {
  * @returns 생성된 업로드 로그 레코드
  */
 export async function POST(request: Request) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const body = await request.json();
   const { upload_type, source_file, row_count, status } = body;
 
@@ -47,6 +54,9 @@ export async function POST(request: Request) {
  * @returns { ok: true }
  */
 export async function DELETE(request: Request) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });

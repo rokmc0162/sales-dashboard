@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 function escapeIlike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => '\\' + ch);
@@ -24,6 +25,9 @@ function escapeIlike(value: string): string {
  * @dynamic force-dynamic (캐시 없음)
  */
 export async function GET(request: Request) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN" });
+  if (unauthorized) return unauthorized;
+
   const { searchParams } = new URL(request.url);
   const search = searchParams.get('search') || '';
   const genre = searchParams.get('genre') || '';
@@ -71,6 +75,9 @@ export async function GET(request: Request) {
  * @returns 생성된 작품 레코드 (201)
  */
 export async function POST(request: Request) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const body = await request.json();
 
   const { data, error } = await supabaseServer
@@ -98,6 +105,9 @@ export async function POST(request: Request) {
  * @returns 수정된 작품 레코드
  */
 export async function PUT(request: Request) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const body = await request.json();
   const { id, ...updates } = body;
 
@@ -136,6 +146,9 @@ export async function PUT(request: Request) {
  * @returns { deleted: number }
  */
 export async function DELETE(request: Request) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const body = await request.json();
   const ids: string[] = body.ids || (body.id ? [body.id] : []);
 

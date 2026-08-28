@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const revalidate = 3600;
 
@@ -9,7 +10,10 @@ export const revalidate = 3600;
  * @returns Genre[] — 전체 장르 목록
  * @cache revalidate 3600초 (1시간)
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { data, error } = await supabaseServer
     .from('genres')
     .select('*');

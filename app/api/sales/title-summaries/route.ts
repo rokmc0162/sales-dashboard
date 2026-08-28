@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { extractBaseTitle, extractProductType } from '@/lib/supabase';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const revalidate = 300;
 
@@ -11,6 +12,9 @@ export const revalidate = 300;
  * - 없으면 전체 기간 (get_title_summaries RPC → get_top_titles 폴백)
  */
 export async function GET(request: NextRequest) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { searchParams } = request.nextUrl;
   const start = searchParams.get('start');
   const end = searchParams.get('end');
