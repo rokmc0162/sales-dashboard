@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # Every scripts/test-*.ts is hermetic — no process.env, no network, no
+      # Supabase — so these run without any repository secret.
+      - name: Settlement pipeline tests
+        run: npm run test:settlement
+
+      - name: Settlement investigation tests
+        run: npm run test:settlement-investigation
+
+      - name: Settlement comparison display tests
+        run: npm run test:settlement-comparison-display
+
+      - name: Settlement workbook review tests
+        run: npm run test:settlement-workbook-review
+
+      - name: Settlement spreadsheet review tests
+        run: npm run test:settlement-spreadsheet-review
+
+      - name: Settlement archive download tests
+        run: npm run test:settlement-archive-download
