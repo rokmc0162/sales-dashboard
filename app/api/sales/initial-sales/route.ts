@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiFailure } from '@/lib/api-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,6 @@ export async function GET(request: Request) {
   if (launchType) query = query.eq('launch_type', launchType);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }

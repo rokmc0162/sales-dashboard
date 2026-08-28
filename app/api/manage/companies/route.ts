@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 /**
  * GET /api/manage/companies
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
     .select('*, titles(count)')
     .order('name', { ascending: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
 
   const result = (data ?? []).map((c: Record<string, unknown>) => ({
     id: c.id,
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
   if (body.action === 'merge') {
     const { sourceId, targetId } = body;
     if (!sourceId || !targetId) {
-      return NextResponse.json({ error: 'sourceId and targetId are required' }, { status: 400 });
+      return apiError('sourceId and targetId are required', 400);
     }
 
     const { error: updateError } = await supabaseServer
@@ -53,14 +54,14 @@ export async function POST(req: NextRequest) {
       .update({ production_company_id: targetId })
       .eq('production_company_id', sourceId);
 
-    if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+    if (updateError) return apiFailure(updateError);
 
     const { error: deleteError } = await supabaseServer
       .from('production_companies')
       .delete()
       .eq('id', sourceId);
 
-    if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    if (deleteError) return apiFailure(deleteError);
 
     return NextResponse.json({ ok: true });
   }
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }
 
@@ -87,7 +88,7 @@ export async function PUT(req: NextRequest) {
 
   const body = await req.json();
   const { id, ...updates } = body;
-  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
+  if (!id) return apiError('id is required', 400);
 
   const { data, error } = await supabaseServer
     .from('production_companies')
@@ -96,7 +97,7 @@ export async function PUT(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }
 
@@ -112,13 +113,13 @@ export async function DELETE(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
+  if (!id) return apiError('id is required', 400);
 
   const { error } = await supabaseServer
     .from('production_companies')
     .delete()
     .eq('id', id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json({ ok: true });
 }

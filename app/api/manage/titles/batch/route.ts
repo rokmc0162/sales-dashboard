@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 /**
  * PUT /api/manage/titles/batch
@@ -19,10 +20,10 @@ export async function PUT(request: Request) {
   const { ids, updates } = body;
 
   if (!ids || !Array.isArray(ids) || ids.length === 0) {
-    return NextResponse.json({ error: 'ids array is required' }, { status: 400 });
+    return apiError('ids array is required', 400);
   }
   if (!updates || Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: 'updates object is required' }, { status: 400 });
+    return apiError('updates object is required', 400);
   }
 
   const { data: oldRows } = await supabaseServer
@@ -36,7 +37,7 @@ export async function PUT(request: Request) {
     .in('id', ids)
     .select();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
 
   for (const row of oldRows || []) {
     const newRow = data?.find((d: Record<string, unknown>) => d.id === row.id);

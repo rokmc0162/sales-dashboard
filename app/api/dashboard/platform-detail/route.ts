@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
   const end = searchParams.get('end');
 
   if (!channel) {
-    return NextResponse.json({ error: 'channel parameter is required' }, { status: 400 });
+    return apiError('channel parameter is required', 400);
   }
 
   // 3인자 오버로드로 명시 호출 (1인자 함수와 중복되어 있어 파라미터 이름 기반 매칭 강제)
@@ -29,6 +30,6 @@ export async function GET(request: Request) {
   };
 
   const { data, error } = await supabaseServer.rpc('get_platform_detail', params);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }

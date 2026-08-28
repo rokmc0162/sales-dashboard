@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import { getComparisonArtifactPaths } from "@/features/settlement/lib/comparison/store";
+import { apiError, apiUnexpected } from "@/lib/api-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -23,10 +24,10 @@ export async function GET(
 
   const { id, kind } = await params;
   if (!UUID_PATTERN.test(id)) {
-    return NextResponse.json({ error: "invalid run id" }, { status: 400 });
+    return apiError("invalid run id", 400);
   }
   if (!KINDS.includes(kind as (typeof KINDS)[number])) {
-    return NextResponse.json({ error: "kind must be answer or candidate" }, { status: 400 });
+    return apiError("kind must be answer or candidate", 400);
   }
 
   const { supabaseServer: supabase } = await import("@/lib/supabase-server");
@@ -35,19 +36,19 @@ export async function GET(
   try {
     run = await getComparisonArtifactPaths(id);
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    return apiUnexpected(e);
   }
   if (!run) {
-    return NextResponse.json({ error: "comparison run not found" }, { status: 404 });
+    return apiError("comparison run not found", 404);
   }
 
   const path = kind === "answer" ? run.answer_storage_path : run.candidate_storage_path;
   if (!path) {
-    return NextResponse.json({ error: "artifact not available" }, { status: 404 });
+    return apiError("artifact not available", 404);
   }
   const signedUrl = await getSignedArchiveUrl(path, 300, supabase);
   if (!signedUrl) {
-    return NextResponse.json({ error: "artifact not available" }, { status: 404 });
+    return apiError("artifact not available", 404);
   }
   return NextResponse.redirect(signedUrl, { status: 302 });
 }

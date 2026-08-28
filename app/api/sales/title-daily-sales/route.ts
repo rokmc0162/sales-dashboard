@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
   const titleJp = searchParams.get('title_jp');
 
   if (!titleJp) {
-    return NextResponse.json({ error: 'title_jp parameter is required' }, { status: 400 });
+    return apiError('title_jp parameter is required', 400);
   }
 
   const { data, error } = await supabaseServer
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
     .eq('title_jp', titleJp)
     .order('sale_date');
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
 
   // Group by sale_date and sum sales_amount
   const grouped = new Map<string, number>();

@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import { supabaseServer as supabase } from "@/lib/supabase-server";
+import { apiError } from "@/lib/api-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
 
   const yearParam = new URL(request.url).searchParams.get("year") ?? "";
   if (!/^\d{4}$/.test(yearParam)) {
-    return NextResponse.json({ error: "year must be YYYY" }, { status: 400 });
+    return apiError("year must be YYYY", 400);
   }
   const year = Number(yearParam);
 
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
       .order("channel_id", { ascending: true, nullsFirst: true })
       .range(page * PAGE, page * PAGE + PAGE - 1);
     if (error) {
-      return NextResponse.json({ error: `sales_records: ${error.message}` }, { status: 500 });
+      return apiError(`sales_records: ${error.message}`);
     }
     const rows = (data ?? []) as Array<{ settlement_batch: string | null; channel_id: string | null; upload_id: string | null }>;
     for (const row of rows) {
@@ -74,7 +75,7 @@ export async function GET(request: Request) {
       .select("id, code, display_name")
       .in("id", channelIds);
     if (error) {
-      return NextResponse.json({ error: `channels: ${error.message}` }, { status: 500 });
+      return apiError(`channels: ${error.message}`);
     }
     for (const c of (data ?? []) as Array<{ id: string; code: string | null; display_name: string | null }>) {
       channelInfo.set(c.id, { code: c.code, name: c.display_name });
@@ -88,7 +89,7 @@ export async function GET(request: Request) {
       .select("id, platform_code")
       .in("id", Array.from(fallbackUploadIds));
     if (error) {
-      return NextResponse.json({ error: `raw_uploads: ${error.message}` }, { status: 500 });
+      return apiError(`raw_uploads: ${error.message}`);
     }
     for (const u of (data ?? []) as Array<{ id: string; platform_code: string | null }>) {
       if (u.platform_code) uploadPlatform.set(u.id, u.platform_code);

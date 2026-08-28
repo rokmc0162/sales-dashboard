@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { tempLoginEnabled } from "@/lib/session";
+import { apiError } from "@/lib/api-utils";
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN!;
 const AUTH0_M2M_CLIENT_ID = process.env.AUTH0_M2M_CLIENT_ID!;
@@ -11,7 +12,7 @@ const TEMP_ACCESS_TOKEN = "rvjp-temporary-mock-access-token";
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!authHeader) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiError("Unauthorized", 401);
   }
 
   const token = authHeader.replace("Bearer ", "");
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (!res.ok) {
-    return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    return apiError("Invalid token", 401);
   }
 
   return NextResponse.json(await res.json());
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!authHeader) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiError("Unauthorized", 401);
   }
 
   // /userinfo로 사용자 ID 추출 (JWT/opaque 모두 지원)
@@ -48,7 +49,7 @@ export async function PATCH(request: NextRequest) {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!userinfoRes.ok) {
-    return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    return apiError("Invalid token", 401);
   }
   const { sub: userId } = (await userinfoRes.json()) as { sub: string };
 
@@ -64,10 +65,7 @@ export async function PATCH(request: NextRequest) {
     }),
   });
   if (!tokenRes.ok) {
-    return NextResponse.json(
-      { error: "Management token failed" },
-      { status: 500 },
-    );
+    return apiError("Management token failed");
   }
   const { access_token: mgmtToken } = await tokenRes.json();
 

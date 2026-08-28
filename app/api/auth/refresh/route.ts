@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { attachSessionCookie, clearAuthCookies, LEGACY_REFRESH_COOKIE } from "@/lib/api-auth";
 import { tempLoginEnabled } from "@/lib/session";
+import { apiError } from "@/lib/api-utils";
 
 const ROLES_NAMESPACE = "https://api.riverse.net/roles";
 
@@ -38,7 +39,7 @@ const TEMP_REFRESH_TOKEN = "rvjp-temporary-mock-refresh-token";
 export async function POST(request: NextRequest) {
   const refreshToken = request.cookies.get(LEGACY_REFRESH_COOKIE)?.value;
   if (!refreshToken) {
-    return NextResponse.json({ error: "No refresh token" }, { status: 401 });
+    return apiError("No refresh token", 401);
   }
 
   // 임시 우회 세션. ALLOW_TEMP_LOGIN=1 일 때만 갱신되고, 그 외에는 아래 Auth0 경로로

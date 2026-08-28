@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 /**
  * GET /api/manage/genres
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
     .select('*')
     .order('code', { ascending: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data ?? []);
 }
 
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }
 
@@ -56,7 +57,7 @@ export async function PUT(req: NextRequest) {
 
   const body = await req.json();
   const { id, ...updates } = body;
-  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
+  if (!id) return apiError('id is required', 400);
 
   const { data, error } = await supabaseServer
     .from('genres')
@@ -65,7 +66,7 @@ export async function PUT(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }
 
@@ -81,13 +82,13 @@ export async function DELETE(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
+  if (!id) return apiError('id is required', 400);
 
   const { error } = await supabaseServer
     .from('genres')
     .delete()
     .eq('id', id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json({ ok: true });
 }

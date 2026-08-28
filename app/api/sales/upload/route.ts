@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { normalizeChannel } from '@/utils/platformConfig';
 import { buildTitleKrMaps, matchTitleKr } from '@/utils/titleMatcher';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError } from '@/lib/api-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
   const { rows, source, isPreliminary, isLastBatch = true, skipPostProcess = false, isFirstBatch = true } = body;
 
   if (!rows || !Array.isArray(rows)) {
-    return NextResponse.json({ error: 'rows array is required' }, { status: 400 });
+    return apiError('rows array is required', 400);
   }
 
   // title_master 로드 (title_kr 매칭 + 신규 작품 등록용)

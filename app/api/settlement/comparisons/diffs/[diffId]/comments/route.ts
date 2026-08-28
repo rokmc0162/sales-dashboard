@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import { readBoundedJsonBody } from "@/features/settlement/lib/api-body";
 import { validateCommentPost } from "@/features/settlement/lib/comparison/investigation";
+import { apiError } from "@/lib/api-utils";
 import {
   insertComparisonComment,
   listComparisonComments,
@@ -32,7 +33,7 @@ export async function GET(
 
   const { diffId } = await params;
   if (!UUID_PATTERN.test(diffId)) {
-    return NextResponse.json({ error: "invalid diff id" }, { status: 400 });
+    return apiError("invalid diff id", 400);
   }
 
   let listed;
@@ -40,10 +41,10 @@ export async function GET(
     listed = await listComparisonComments(diffId);
   } catch {
     console.error(`settlement comparison comments GET failed (diff ${diffId})`);
-    return NextResponse.json({ error: "internal error" }, { status: 500 });
+    return apiError("internal error");
   }
   if (listed === null) {
-    return NextResponse.json({ error: "diff not found" }, { status: 404 });
+    return apiError("diff not found", 404);
   }
   return NextResponse.json({ comments: listed.comments, truncated: listed.truncated });
 }
@@ -57,16 +58,16 @@ export async function POST(
 
   const { diffId } = await params;
   if (!UUID_PATTERN.test(diffId)) {
-    return NextResponse.json({ error: "invalid diff id" }, { status: 400 });
+    return apiError("invalid diff id", 400);
   }
 
   const read = await readBoundedJsonBody(request);
   if (!read.ok) {
-    return NextResponse.json({ error: read.error }, { status: read.status });
+    return apiError(read.error, read.status);
   }
   const validation = validateCommentPost(read.body);
   if (!validation.ok) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
+    return apiError(validation.error, 400);
   }
 
   let comment;
@@ -74,10 +75,10 @@ export async function POST(
     comment = await insertComparisonComment(diffId, validation.body, "operator");
   } catch {
     console.error(`settlement comparison comments POST failed (diff ${diffId})`);
-    return NextResponse.json({ error: "internal error" }, { status: 500 });
+    return apiError("internal error");
   }
   if (!comment) {
-    return NextResponse.json({ error: "diff not found" }, { status: 404 });
+    return apiError("diff not found", 404);
   }
   return NextResponse.json({ comment }, { status: 201 });
 }

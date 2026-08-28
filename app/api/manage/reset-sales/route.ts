@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiUnexpected } from '@/lib/api-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,9 +48,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, message: msg });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 500 },
-    );
+    return apiUnexpected(err);
   }
 }
