@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import { DIFF_REVIEW_STATUSES } from "@/features/settlement/lib/comparison/review";
+import { apiError, apiUnexpected } from "@/lib/api-utils";
 import {
   getComparisonRun,
   listComparisonDiffs,
@@ -34,16 +35,13 @@ export async function GET(
 
   const { id } = await params;
   if (!UUID_PATTERN.test(id)) {
-    return NextResponse.json({ error: "invalid run id" }, { status: 400 });
+    return apiError("invalid run id", 400);
   }
 
   const url = new URL(request.url);
   const category = url.searchParams.get("category");
   if (category && !CATEGORIES.includes(category as (typeof CATEGORIES)[number])) {
-    return NextResponse.json(
-      { error: `category must be one of: ${CATEGORIES.join(", ")}` },
-      { status: 400 },
-    );
+    return apiError(`category must be one of: ${CATEGORIES.join(", ")}`, 400);
   }
   const categoryFilter = category as ComparisonDiffCategory | null;
   const reviewStatus = url.searchParams.get("review_status");
@@ -51,10 +49,7 @@ export async function GET(
     reviewStatus &&
     !DIFF_REVIEW_STATUSES.includes(reviewStatus as (typeof DIFF_REVIEW_STATUSES)[number])
   ) {
-    return NextResponse.json(
-      { error: `review_status must be one of: ${DIFF_REVIEW_STATUSES.join(", ")}` },
-      { status: 400 },
-    );
+    return apiError(`review_status must be one of: ${DIFF_REVIEW_STATUSES.join(", ")}`, 400);
   }
   const reviewStatusFilter = reviewStatus as ComparisonDiffReviewStatus | null;
   const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
@@ -65,10 +60,10 @@ export async function GET(
   try {
     run = await getComparisonRun(id);
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    return apiUnexpected(e);
   }
   if (!run) {
-    return NextResponse.json({ error: "comparison run not found" }, { status: 404 });
+    return apiError("comparison run not found", 404);
   }
 
   let diffPage;
@@ -81,7 +76,7 @@ export async function GET(
       limit,
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    return apiUnexpected(e);
   }
 
   return NextResponse.json({

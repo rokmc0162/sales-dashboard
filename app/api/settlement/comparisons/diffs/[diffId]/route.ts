@@ -13,6 +13,7 @@ import { readBoundedJsonBody } from "@/features/settlement/lib/api-body";
 import { validateDiffInvestigationPatch } from "@/features/settlement/lib/comparison/investigation";
 import { validateDiffReviewPatch } from "@/features/settlement/lib/comparison/review";
 import { patchComparisonDiffReview } from "@/features/settlement/lib/comparison/store";
+import { apiError } from "@/lib/api-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -28,28 +29,25 @@ export async function PATCH(
 
   const { diffId } = await params;
   if (!UUID_PATTERN.test(diffId)) {
-    return NextResponse.json({ error: "invalid diff id" }, { status: 400 });
+    return apiError("invalid diff id", 400);
   }
 
   const read = await readBoundedJsonBody(request);
   if (!read.ok) {
-    return NextResponse.json({ error: read.error }, { status: read.status });
+    return apiError(read.error, read.status);
   }
   const body = read.body;
   const review = validateDiffReviewPatch(body, { allowEmpty: true });
   if (!review.ok) {
-    return NextResponse.json({ error: review.error }, { status: 400 });
+    return apiError(review.error, 400);
   }
   const investigation = validateDiffInvestigationPatch(body);
   if (!investigation.ok) {
-    return NextResponse.json({ error: investigation.error }, { status: 400 });
+    return apiError(investigation.error, 400);
   }
   const patch = { ...review.patch, ...investigation.patch };
   if (Object.keys(patch).length === 0) {
-    return NextResponse.json(
-      { error: "provide review_status, note, and/or investigation fields" },
-      { status: 400 },
-    );
+    return apiError("provide review_status, note, and/or investigation fields", 400);
   }
 
   let data;
@@ -62,10 +60,10 @@ export async function PATCH(
     // Bounded route context only — the diffId is a validated UUID. The DB
     // error message is never sent to the client.
     console.error(`settlement comparison diff PATCH failed (diff ${diffId})`);
-    return NextResponse.json({ error: "internal error" }, { status: 500 });
+    return apiError("internal error");
   }
   if (!data) {
-    return NextResponse.json({ error: "diff not found" }, { status: 404 });
+    return apiError("diff not found", 404);
   }
   return NextResponse.json({ diff: data });
 }

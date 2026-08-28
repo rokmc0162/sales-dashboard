@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { attachSessionCookie, LEGACY_REFRESH_COOKIE } from "@/lib/api-auth";
 import { tempLoginEnabled } from "@/lib/session";
+import { apiError } from "@/lib/api-utils";
 
 const ROLES_NAMESPACE = "https://api.riverse.net/roles";
 
@@ -45,10 +46,7 @@ function auth0Configured(): boolean {
 
 /** A login that cannot mint a session is not a login — say so instead of pretending. */
 function sessionUnavailable() {
-  return NextResponse.json(
-    { error: "서버 세션 설정이 완료되지 않았습니다. 관리자에게 문의하세요." },
-    { status: 500 },
-  );
+  return apiError("서버 세션 설정이 완료되지 않았습니다. 관리자에게 문의하세요.");
 }
 
 export async function POST(request: NextRequest) {
@@ -91,10 +89,7 @@ export async function POST(request: NextRequest) {
 
   if (!auth0Configured()) {
     console.error("[auth] AUTH0_DOMAIN/CLIENT_ID/CLIENT_SECRET/AUDIENCE are not all set");
-    return NextResponse.json(
-      { error: "로그인 설정이 완료되지 않았습니다. 관리자에게 문의하세요." },
-      { status: 500 },
-    );
+    return apiError("로그인 설정이 완료되지 않았습니다. 관리자에게 문의하세요.");
   }
 
   const auth0Res = await fetch(`https://${AUTH0_DOMAIN}/oauth/token`, {
@@ -123,10 +118,7 @@ export async function POST(request: NextRequest) {
   // ADMIN role 체크
   const { sub, roles } = extractClaims(data.access_token);
   if (!roles.includes("ADMIN")) {
-    return NextResponse.json(
-      { error: "관리자 권한이 없습니다. 관리자에게 문의하세요." },
-      { status: 403 },
-    );
+    return apiError("관리자 권한이 없습니다. 관리자에게 문의하세요.", 403);
   }
 
   const response = NextResponse.json({

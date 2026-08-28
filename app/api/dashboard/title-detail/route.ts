@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 export const revalidate = 300;
 
@@ -19,12 +20,12 @@ export async function GET(request: Request) {
   const titleJp = searchParams.get('title_jp');
 
   if (!titleJp) {
-    return NextResponse.json({ error: 'title_jp parameter is required' }, { status: 400 });
+    return apiError('title_jp parameter is required', 400);
   }
 
   const { data, error } = await supabaseServer.rpc('get_title_detail', {
     p_title_jp: titleJp,
   });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }

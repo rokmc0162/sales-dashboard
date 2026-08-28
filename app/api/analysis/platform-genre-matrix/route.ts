@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
 
 export const revalidate = 300;
 

@@ -21,6 +21,7 @@
 import { NextResponse } from "next/server";
 
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
+import { apiError, apiUnexpected } from "@/lib/api-utils";
 import {
   completeComparisonRun,
   createComparisonRun,
@@ -62,14 +63,14 @@ export async function POST(request: Request) {
   const month = typeof form.get("month") === "string" ? (form.get("month") as string) : "";
   const batchIso = monthToBatchIso(month);
   if (!batchIso) {
-    return NextResponse.json({ error: "month must be YYYYMM, e.g. 202605" }, { status: 400 });
+    return apiError("month must be YYYYMM, e.g. 202605", 400);
   }
   const answer = form.get("answer");
   if (!(answer instanceof File) || answer.size === 0) {
-    return NextResponse.json({ error: "answer must be a non-empty file" }, { status: 400 });
+    return apiError("answer must be a non-empty file", 400);
   }
   if (answer.size > MAX_ANSWER_BYTES) {
-    return NextResponse.json({ error: "answer file too large (max 3.5MB)" }, { status: 413 });
+    return apiError("answer file too large (max 3.5MB)", 413);
   }
   const answerBuffer = Buffer.from(await answer.arrayBuffer());
 
@@ -95,10 +96,7 @@ export async function POST(request: Request) {
     );
     answerPath = stored.path;
   } catch (e) {
-    return NextResponse.json(
-      { error: `failed to store answer-key: ${(e as Error).message}` },
-      { status: 500 },
-    );
+    return apiError(`failed to store answer-key: ${(e as Error).message}`);
   }
 
   // Provenance: which raw uploads exist for this month right now.
@@ -134,10 +132,7 @@ export async function POST(request: Request) {
   try {
     run = await createComparisonRun(runInsert);
   } catch (e) {
-    return NextResponse.json(
-      { error: `failed to create comparison run: ${(e as Error).message}` },
-      { status: 500 },
-    );
+    return apiError(`failed to create comparison run: ${(e as Error).message}`);
   }
 
   const failRun = async (message: string, status: number) => {
@@ -243,7 +238,7 @@ export async function GET(request: Request) {
   if (month) {
     batchIso = monthToBatchIso(month);
     if (!batchIso) {
-      return NextResponse.json({ error: "month must be YYYYMM" }, { status: 400 });
+      return apiError("month must be YYYYMM", 400);
     }
   }
 
@@ -254,6 +249,6 @@ export async function GET(request: Request) {
     ]);
     return NextResponse.json({ runs, latest_completed_run_id: latestCompletedRunId });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    return apiUnexpected(e);
   }
 }

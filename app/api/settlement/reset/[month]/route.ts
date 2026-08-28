@@ -16,6 +16,7 @@
 import { NextResponse } from "next/server";
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import { supabaseServer as supabase } from "@/lib/supabase-server";
+import { apiError } from "@/lib/api-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -29,11 +30,11 @@ export async function POST(
 
   const { month } = await params;
   if (!/^\d{6}$/.test(month)) {
-    return NextResponse.json({ error: "month must be YYYYMM" }, { status: 400 });
+    return apiError("month must be YYYYMM", 400);
   }
   const body = (await request.json().catch(() => ({}))) as { confirm?: boolean };
   if (body.confirm !== true) {
-    return NextResponse.json({ error: "confirm=true required" }, { status: 400 });
+    return apiError("confirm=true required", 400);
   }
 
   const batchIso = `${month.slice(0, 4)}-${month.slice(4, 6)}-01`;
@@ -47,7 +48,7 @@ export async function POST(
       .from("sales_records")
       .delete({ count: "exact" })
       .eq("settlement_batch", batchIso);
-    if (error) return NextResponse.json({ error: `sales_records: ${error.message}` }, { status: 500 });
+    if (error) return apiError(`sales_records: ${error.message}`);
     result.sales_records_deleted = count ?? 0;
   }
 
@@ -81,7 +82,7 @@ export async function POST(
         .from("raw_uploads")
         .delete({ count: "exact" })
         .in("id", ids);
-      if (error) return NextResponse.json({ error: `raw_uploads: ${error.message}` }, { status: 500 });
+      if (error) return apiError(`raw_uploads: ${error.message}`);
       result.raw_uploads_deleted = count ?? 0;
     } else {
       result.raw_uploads_deleted = 0;

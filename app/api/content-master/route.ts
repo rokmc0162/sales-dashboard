@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiFailure } from '@/lib/api-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,7 +90,7 @@ export async function GET(request: NextRequest) {
   if (q) {
     query = query.limit(5000);
     const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return apiFailure(error);
 
     const filtered = ((data ?? []) as unknown as Array<Record<string, unknown>>).filter((row) => {
       const titleJp = String(row.title_jp ?? '').toLocaleLowerCase();
@@ -104,6 +105,6 @@ export async function GET(request: NextRequest) {
   query = query.range(from, from + pageSize - 1);
 
   const { data, error, count } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json({ rows: data, count });
 }

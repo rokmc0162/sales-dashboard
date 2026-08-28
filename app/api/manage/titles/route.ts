@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 function escapeIlike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => '\\' + ch);
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
   query = query.range(from, to);
 
   const { data, error, count } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json({ rows: data, count });
 }
 
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
 
   await supabaseServer.from('audit_logs').insert({
     action: 'INSERT',
@@ -111,7 +112,7 @@ export async function PUT(request: Request) {
   const body = await request.json();
   const { id, ...updates } = body;
 
-  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
+  if (!id) return apiError('id is required', 400);
 
   const { data: oldData } = await supabaseServer
     .from('titles')
@@ -126,7 +127,7 @@ export async function PUT(request: Request) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
 
   await supabaseServer.from('audit_logs').insert({
     action: 'UPDATE',
@@ -152,7 +153,7 @@ export async function DELETE(request: Request) {
   const body = await request.json();
   const ids: string[] = body.ids || (body.id ? [body.id] : []);
 
-  if (ids.length === 0) return NextResponse.json({ error: 'id or ids required' }, { status: 400 });
+  if (ids.length === 0) return apiError('id or ids required', 400);
 
   const { data: oldRows } = await supabaseServer
     .from('titles')
@@ -164,7 +165,7 @@ export async function DELETE(request: Request) {
     .delete()
     .in('id', ids);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
 
   for (const row of oldRows || []) {
     await supabaseServer.from('audit_logs').insert({

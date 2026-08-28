@@ -16,6 +16,7 @@ import {
 } from "@/features/settlement/lib/comparison/store";
 import { downloadArchiveBuffer } from "@/features/settlement/lib/storage/archive";
 import type { Json } from "@/features/settlement/lib/supabase/types";
+import { apiError } from "@/lib/api-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -46,7 +47,7 @@ export async function GET(
 
   const { id } = await params;
   if (!UUID_PATTERN.test(id)) {
-    return NextResponse.json({ error: "invalid run id" }, { status: 400 });
+    return apiError("invalid run id", 400);
   }
 
   try {
@@ -56,10 +57,10 @@ export async function GET(
       listAllComparisonDiffs(id),
     ]);
     if (!run || !artifacts) {
-      return NextResponse.json({ error: "comparison run not found" }, { status: 404 });
+      return apiError("comparison run not found", 404);
     }
     if (!artifacts.answer_storage_path || !artifacts.candidate_storage_path) {
-      return NextResponse.json({ error: "comparison artifacts not available" }, { status: 404 });
+      return apiError("comparison artifacts not available", 404);
     }
 
     const { supabaseServer: supabase } = await import("@/lib/supabase-server");
@@ -90,6 +91,6 @@ export async function GET(
       "[settlement workbook review] build failed:",
       error instanceof Error ? error.message : "unknown error",
     );
-    return NextResponse.json({ error: "failed to build workbook review" }, { status: 500 });
+    return apiError("failed to build workbook review");
   }
 }

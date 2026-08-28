@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 export const revalidate = 300;
 
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
   const limit = searchParams.get('limit');
 
   if (!currentStart || !currentEnd || !prevStart || !prevEnd) {
-    return NextResponse.json({ error: 'currentStart, currentEnd, prevStart, prevEnd are required' }, { status: 400 });
+    return apiError('currentStart, currentEnd, prevStart, prevEnd are required', 400);
   }
 
   const { data, error } = await supabaseServer.rpc('get_title_rankings', {
@@ -37,6 +38,6 @@ export async function GET(request: Request) {
     p_prev_end: prevEnd,
     p_limit: limit ? parseInt(limit, 10) : 50,
   });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }

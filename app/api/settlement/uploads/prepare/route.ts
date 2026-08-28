@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import { supabaseServer as supabase } from "@/lib/supabase-server";
+import { apiError, apiFailure } from "@/lib/api-utils";
 import {
   buildDirectUploadPath,
   DIRECT_UPLOAD_BUCKET,
@@ -19,12 +20,12 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+    return apiError("invalid JSON body", 400);
   }
 
   const validation = validatePrepareUploadPayload(body);
   if (!validation.ok) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
+    return apiError(validation.error, 400);
   }
 
   const { filename, size_bytes, content_type, active_month } = validation.value;
@@ -64,10 +65,7 @@ export async function POST(request: Request) {
       })
       .eq("id", row.id);
 
-    return NextResponse.json(
-      { error: "signed upload URL creation failed" },
-      { status: 500 },
-    );
+    return apiError("signed upload URL creation failed");
   }
 
   return NextResponse.json({
@@ -85,12 +83,12 @@ export async function DELETE(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+    return apiError("invalid JSON body", 400);
   }
 
   const validation = validateCleanupUploadPayload(body);
   if (!validation.ok) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
+    return apiError(validation.error, 400);
   }
 
   const { data, error } = await supabase
@@ -107,7 +105,7 @@ export async function DELETE(request: Request) {
     .select("id");
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return apiFailure(error);
   }
 
   return NextResponse.json({ cleaned: (data ?? []).length === 1 });

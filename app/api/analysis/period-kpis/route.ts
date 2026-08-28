@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 export const revalidate = 300;
 
@@ -21,13 +22,13 @@ export async function GET(request: Request) {
   const endDate = searchParams.get('endDate');
 
   if (!startDate || !endDate) {
-    return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 });
+    return apiError('startDate and endDate are required', 400);
   }
 
   const { data, error } = await supabaseServer.rpc('get_kpis_for_period', {
     p_start_date: startDate,
     p_end_date: endDate,
   });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
   const endDate = searchParams.get('endDate');
 
   if (!startDate || !endDate) {
-    return NextResponse.json({ error: 'startDate and endDate required' }, { status: 400 });
+    return apiError('startDate and endDate required', 400);
   }
 
   // Paginated fetch from daily_sales_v2 with date range filter
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
       .lte('sale_date', endDate)
       .range(from, from + batchSize - 1);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return apiFailure(error);
     if (!data || data.length === 0) break;
     allRows.push(...data);
     if (data.length < batchSize) break;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireSettlementApiAuth } from "@/features/settlement/lib/api-auth";
 import { loadInputV2Records } from "@/features/settlement/lib/export/load-input-v2-records";
+import { apiError } from "@/lib/api-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,10 +17,7 @@ export async function GET(
   const { month: rawMonth } = await params;
   const month = rawMonth.replace(/\.xlsx$/i, "");
   if (!/^\d{6}$/.test(month)) {
-    return NextResponse.json(
-      { error: "month must be YYYYMM, e.g. 202604" },
-      { status: 400 },
-    );
+    return apiError("month must be YYYYMM, e.g. 202604", 400);
   }
 
   const { records, source, loadError } = await loadInputV2Records(month);

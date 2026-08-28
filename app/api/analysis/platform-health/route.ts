@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError } from '@/lib/api-utils';
 
 export const revalidate = 300;
 
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
   const months = parseInt(searchParams.get('months') ?? '6', 10);
 
   if (!channel) {
-    return NextResponse.json({ error: 'channel parameter is required' }, { status: 400 });
+    return apiError('channel parameter is required', 400);
   }
 
   try {

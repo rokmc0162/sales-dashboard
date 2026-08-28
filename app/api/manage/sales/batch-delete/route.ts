@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 /**
  * POST /api/manage/sales/batch-delete
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
   const { startDate, endDate, dataSource, channel } = body;
 
   if (!startDate && !endDate && !dataSource && !channel) {
-    return NextResponse.json({ error: 'At least one filter condition is required' }, { status: 400 });
+    return apiError('At least one filter condition is required', 400);
   }
 
   // Find matching rows
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
   if (channel) query = query.eq('channel', channel);
 
   const { data: rows, error: findError } = await query;
-  if (findError) return NextResponse.json({ error: findError.message }, { status: 500 });
+  if (findError) return apiFailure(findError);
   if (!rows || rows.length === 0) return NextResponse.json({ deleted: 0 });
 
   const ids = rows.map((r: { id: number }) => r.id);

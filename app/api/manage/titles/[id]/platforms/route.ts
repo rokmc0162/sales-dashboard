@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 /**
  * GET /api/manage/titles/[id]/platforms
@@ -25,7 +26,7 @@ export async function GET(
     .select('*, platforms(code, name_jp, name_kr)')
     .eq('title_id', id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }
 
@@ -47,7 +48,7 @@ export async function POST(
   const body = await request.json();
   const { platform_id, launch_date } = body;
 
-  if (!platform_id) return NextResponse.json({ error: 'platform_id is required' }, { status: 400 });
+  if (!platform_id) return apiError('platform_id is required', 400);
 
   const { data, error } = await supabaseServer
     .from('title_platform_availability')
@@ -55,7 +56,7 @@ export async function POST(
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
 
   await supabaseServer.from('audit_logs').insert({
     action: 'INSERT',
@@ -85,7 +86,7 @@ export async function DELETE(
   const body = await request.json();
   const { platform_id } = body;
 
-  if (!platform_id) return NextResponse.json({ error: 'platform_id is required' }, { status: 400 });
+  if (!platform_id) return apiError('platform_id is required', 400);
 
   const { data: oldData } = await supabaseServer
     .from('title_platform_availability')
@@ -100,7 +101,7 @@ export async function DELETE(
     .eq('title_id', id)
     .eq('platform_id', platform_id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
 
   await supabaseServer.from('audit_logs').insert({
     action: 'DELETE',

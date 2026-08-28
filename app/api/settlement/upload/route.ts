@@ -29,6 +29,7 @@ import {
   type ExactSourceDuplicateDecision,
 } from "@/features/settlement/lib/storage/direct-upload";
 import type { Json, RawUploadInsert } from "@/features/settlement/lib/supabase/types";
+import { apiError } from "@/lib/api-utils";
 import type {
   TransformContext,
   LookupMaps,
@@ -121,7 +122,7 @@ async function handleMultipartUpload(request: Request) {
   const files = form.getAll("files") as File[];
   const folderHintValidation = validateFolderHint(form.get("folder"));
   if (!folderHintValidation.ok) {
-    return NextResponse.json({ error: folderHintValidation.error }, { status: 400 });
+    return apiError(folderHintValidation.error, 400);
   }
   const folderHint = folderHintValidation.value;
   const activeMonthRaw = (form.get("activeMonth") as string) || "";
@@ -132,7 +133,7 @@ async function handleMultipartUpload(request: Request) {
   const runLabel = buildRunLabel(request, form);
 
   if (files.length === 0) {
-    return NextResponse.json({ error: "no files" }, { status: 400 });
+    return apiError("no files", 400);
   }
   console.log(`[upload]${runLabel} received ${files.length} file(s)`);
 
@@ -142,16 +143,13 @@ async function handleMultipartUpload(request: Request) {
       .delete()
       .eq("settlement_batch", activeMonth);
     if (delErr) {
-      return NextResponse.json(
-        { error: `failed to clear month: ${delErr.message}` },
-        { status: 500 },
-      );
+      return apiError(`failed to clear month: ${delErr.message}`);
     }
   }
 
   const lookups = await loadLookups(supabase, buildLookupMaps);
   if ("error" in lookups) {
-    return NextResponse.json({ error: lookups.error }, { status: 500 });
+    return apiError(lookups.error);
   }
 
   const results: UploadResult[] = [];
@@ -231,11 +229,11 @@ async function handlePreparedUpload(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+    return apiError("invalid JSON body", 400);
   }
   const { uploadId, folderHint } = parseProcessUploadPayload(body);
   if (!folderHint.ok) {
-    return NextResponse.json({ error: folderHint.error }, { status: 400 });
+    return apiError(folderHint.error, 400);
   }
 
   const prepared = await prepareDirectUploadForParse(String(uploadId ?? ""), {
@@ -280,7 +278,7 @@ async function handlePreparedUpload(request: Request) {
         }],
       });
     }
-    return NextResponse.json({ error: prepared.error }, { status: prepared.status });
+    return apiError(prepared.error, prepared.status);
   }
 
   // Exact-source duplicate gate: the row is already claimed as parsing with
@@ -350,7 +348,7 @@ async function handlePreparedUpload(request: Request) {
   ]);
   const lookups = await loadLookups(supabaseServer, aggregation.buildLookupMaps);
   if ("error" in lookups) {
-    return NextResponse.json({ error: lookups.error }, { status: 500 });
+    return apiError(lookups.error);
   }
 
   let parsed: ParsedFile;

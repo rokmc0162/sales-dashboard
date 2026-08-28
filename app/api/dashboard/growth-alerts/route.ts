@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiFailure } from '@/lib/api-utils';
 
 export const revalidate = 300;
 
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     .from('daily_sales_v2')
     .select('title_jp, title_kr, sale_date, sales_amount');
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
 
   const titleMap = new Map<string, { title_kr: string | null; thisMonth: number; lastMonth: number }>();
 

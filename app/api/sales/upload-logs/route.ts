@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiError, apiFailure } from '@/lib/api-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
     .order('created_at', { ascending: false })
     .limit(20);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }
 
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json(data);
 }
 
@@ -59,13 +60,13 @@ export async function DELETE(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
+  if (!id) return apiError('id is required', 400);
 
   const { error } = await supabaseServer
     .from('upload_logs')
     .delete()
     .eq('id', id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return apiFailure(error);
   return NextResponse.json({ ok: true });
 }

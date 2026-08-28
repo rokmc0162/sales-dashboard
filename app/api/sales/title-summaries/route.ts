@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { extractBaseTitle, extractProductType } from '@/lib/supabase';
-import { requireApiAuth } from "@/lib/api-auth";
+import { requireApiAuth } from '@/lib/api-auth';
+import { apiFailure } from '@/lib/api-utils';
 
 export const revalidate = 300;
 
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
       .gte('sale_date', start)
       .lte('sale_date', end);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return apiFailure(error);
 
     // 작품별 집계
     const map = new Map<string, {
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
       p_limit: 1000,
       p_month: null,
     });
-    if (fallbackError) return NextResponse.json({ error: fallbackError.message }, { status: 500 });
+    if (fallbackError) return apiFailure(fallbackError);
     return NextResponse.json(enrichWithBaseTitle(fallback));
   }
 
