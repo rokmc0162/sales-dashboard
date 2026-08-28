@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { requireApiAuth } from '@/lib/api-auth';
-import { apiFailure } from '@/lib/api-utils';
+import { apiUnexpected } from '@/lib/api-utils';
+import { cachedSupabaseRead } from '@/lib/api-cache';
 
-export const revalidate = 300;
+/** 300초 캐시. 인증은 요청마다, 이 읽기만 공유된다. */
+const read = cachedSupabaseRead('sales-active-channels', 300, () =>
+  supabaseServer
+    .from('active_channels')
+    .select('*'),
+);
 
 /**
  * GET /api/sales/active-channels
@@ -15,10 +21,9 @@ export async function GET(request: Request) {
   const unauthorized = await requireApiAuth(request);
   if (unauthorized) return unauthorized;
 
-  const { data, error } = await supabaseServer
-    .from('active_channels')
-    .select('*');
-
-  if (error) return apiFailure(error);
-  return NextResponse.json(data);
+  try {
+    return NextResponse.json(await read());
+  } catch (e) {
+    return apiUnexpected(e);
+  }
 }
