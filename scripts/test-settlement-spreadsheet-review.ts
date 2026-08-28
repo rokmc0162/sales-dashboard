@@ -29,7 +29,12 @@ assert.throws(
 assert.match(route, /UUID_PATTERN\.test\(id\).*notFound\(\)/s);
 assert.match(route, /<AppProvider>[\s\S]*<SettlementSpreadsheetReview runId=\{id\}/);
 assert.doesNotMatch(route, /ClientLayout|Sidebar/);
-assert.match(middleware, /if \(!hasRefreshCookie\)[\s\S]*new URL\("\/login"/);
+// The standalone route has no route-group protection of its own, so middleware
+// is the only thing in front of it. Pin that unauthenticated requests are sent
+// to /login, and that the check is a real signature verification rather than a
+// cookie-presence test (anyone can set a cookie).
+assert.match(middleware, /if \(!authenticated\)[\s\S]*new URL\("\/login"/);
+assert.match(middleware, /verifySession\(req\.cookies\.get\(SESSION_COOKIE\)/);
 assert.doesNotMatch(middleware, /settlement-sheet[\s\S]*NextResponse\.next\(\)/);
 
 assert.match(compare, /href=\{`\/settlement-sheet\/\$\{run\.id\}`\}/);

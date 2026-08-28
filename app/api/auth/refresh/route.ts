@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { attachSessionCookie, clearAuthCookies, LEGACY_REFRESH_COOKIE } from "@/lib/api-auth";
+import { tempLoginEnabled } from "@/lib/session";
 
 const ROLES_NAMESPACE = "https://api.riverse.net/roles";
 
@@ -27,9 +28,9 @@ function extractClaims(accessToken: string): {
   }
 }
 
-const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN!;
-const AUTH0_CLIENT_ID = process.env.AUTH0_CLIENT_ID!;
-const AUTH0_CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET!;
+const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
+const AUTH0_CLIENT_ID = process.env.AUTH0_CLIENT_ID;
+const AUTH0_CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
 const REFRESH_TOKEN_MAX_AGE = 60 * 60 * 24 * 7;
 const TEMP_ACCESS_TOKEN = "rvjp-temporary-mock-access-token";
 const TEMP_REFRESH_TOKEN = "rvjp-temporary-mock-refresh-token";
@@ -40,18 +41,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No refresh token" }, { status: 401 });
   }
 
-  // TODO: 임시 우회 로그인입니다. 운영 Auth0 복구 후 제거하세요.
-  if (refreshToken === TEMP_REFRESH_TOKEN) {
+  // 임시 우회 세션. ALLOW_TEMP_LOGIN=1 일 때만 갱신되고, 그 외에는 아래 Auth0 경로로
+  // 내려가 실패하면서 쿠키가 정리된다.
+  if (tempLoginEnabled() && refreshToken === TEMP_REFRESH_TOKEN) {
     const response = NextResponse.json({
       accessToken: TEMP_ACCESS_TOKEN,
       expiresIn: REFRESH_TOKEN_MAX_AGE,
     });
-    await attachSessionCookie(response, {
+    const issued = await attachSessionCookie(response, {
       sub: "temporary|riverse",
       email: "temporary@riverse.local",
       roles: ["ADMIN"],
     });
+    if (!issued) {
+      const failed = NextResponse.json({ error: "Session unavailable" }, { status: 500 });
+      clearAuthCookies(failed);
+      return failed;
+    }
     return response;
+  }
+
+  if (!AUTH0_DOMAIN || !AUTH0_CLIENT_ID || !AUTH0_CLIENT_SECRET) {
+    console.error("[auth] Auth0 env vars missing — cannot refresh");
+    const failed = NextResponse.json({ error: "Refresh unavailable" }, { status: 500 });
+    clearAuthCookies(failed);
+    return failed;
   }
 
   const auth0Res = await fetch(`https://${AUTH0_DOMAIN}/oauth/token`, {
@@ -103,7 +117,11 @@ export async function POST(request: NextRequest) {
 
   // This is also the migration path: a user who still holds only the legacy
   // refresh cookie picks up a session here on the app's first refresh call.
-  await attachSessionCookie(response, { sub: sub || "auth0", email, roles });
+  if (!(await attachSessionCookie(response, { sub: sub || "auth0", email, roles }))) {
+    const failed = NextResponse.json({ error: "Session unavailable" }, { status: 500 });
+    clearAuthCookies(failed);
+    return failed;
+  }
 
   return response;
 }

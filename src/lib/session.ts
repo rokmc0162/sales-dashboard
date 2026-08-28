@@ -95,11 +95,17 @@ interface SecretEntry {
   secret: string;
 }
 
+/**
+ * The temporary-login escape hatch. Unset in production, which disables the
+ * numeric-password bypass, the fixed mock tokens, and the development secret.
+ */
+export function tempLoginEnabled(): boolean {
+  return process.env.ALLOW_TEMP_LOGIN === "1";
+}
+
 function devSecretAllowed(): boolean {
   // Both conditions required: a production build must never fall back.
-  return (
-    process.env.NODE_ENV === "development" && process.env.ALLOW_TEMP_LOGIN === "1"
-  );
+  return process.env.NODE_ENV === "development" && tempLoginEnabled();
 }
 
 function rawSecrets(): { current: string | null; previous: string | null } {

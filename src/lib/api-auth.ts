@@ -134,11 +134,10 @@ export async function authenticateApi(
 /**
  * Signs a session and attaches it to `response`.
  *
- * Stage note: if SESSION_SECRET is missing this logs loudly and leaves the
- * response without a session cookie rather than failing the login. While the
- * legacy X-REFRESH-TOKEN path still works, a missing secret degrades instead of
- * locking everyone out. Once the session is the only accepted credential this
- * must become a hard failure.
+ * The session is now the only credential the app accepts, so a missing
+ * SESSION_SECRET is a hard failure: returning success without a session would
+ * hand the user a login that cannot open a single page. Callers must check the
+ * return value and refuse the request.
  */
 export async function attachSessionCookie(
   response: NextResponse,

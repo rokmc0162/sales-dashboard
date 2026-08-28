@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireApiAuth, readCookie, LEGACY_REFRESH_COOKIE } from "@/lib/api-auth";
+import { tempLoginEnabled } from "@/lib/session";
 
 const TEMP_REFRESH_TOKEN = "rvjp-temporary-mock-refresh-token";
 
@@ -12,9 +13,9 @@ const TEMP_REFRESH_TOKEN = "rvjp-temporary-mock-refresh-token";
  * These routes use the Supabase service role, so this is the only thing
  * standing in front of the raw settlement data.
  *
- * The fixed legacy cookie is still accepted so a browser that has not yet picked
- * up a session (it gets one on the next /api/auth/refresh) keeps working. The
- * follow-up change puts this fallback behind ALLOW_TEMP_LOGIN.
+ * The fixed legacy cookie is only honoured while ALLOW_TEMP_LOGIN is set, so in
+ * production a valid ADMIN session is the sole way in. Delete the fallback once
+ * the temporary login itself is gone.
  */
 export async function requireSettlementApiAuth(
   request: Request,
@@ -22,9 +23,10 @@ export async function requireSettlementApiAuth(
   const unauthorized = await requireApiAuth(request, { role: "ADMIN" });
   if (!unauthorized) return null;
 
-  // TODO: remove with the temporary login — legacy compatibility only.
-  const legacy = readCookie(request.headers.get("cookie"), LEGACY_REFRESH_COOKIE);
-  if (legacy === TEMP_REFRESH_TOKEN) return null;
+  if (tempLoginEnabled()) {
+    const legacy = readCookie(request.headers.get("cookie"), LEGACY_REFRESH_COOKIE);
+    if (legacy === TEMP_REFRESH_TOKEN) return null;
+  }
 
   return unauthorized;
 }
