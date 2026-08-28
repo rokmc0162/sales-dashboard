@@ -10,7 +10,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ month: string }> },
 ) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const { month: rawMonth } = await params;

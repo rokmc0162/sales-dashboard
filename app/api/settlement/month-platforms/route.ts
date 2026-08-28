@@ -20,7 +20,7 @@ const PAGE = 1000;
 type PlatformEntry = { code: string | null; name: string | null };
 
 export async function GET(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const yearParam = new URL(request.url).searchParams.get("year") ?? "";

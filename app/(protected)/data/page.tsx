@@ -566,7 +566,7 @@ export default function DataPage() {
 
                     setDeleting(true);
                     try {
-                      const body: Record<string, string> = { password: 'CLINK' };
+                      const body: Record<string, string> = {};
                       if (deleteMode === 'range') {
                         if (deleteStartDate) body.startDate = deleteStartDate;
                         if (deleteEndDate) body.endDate = deleteEndDate;

@@ -69,7 +69,7 @@ type ProcessParsedArgs = {
 };
 
 export async function POST(request: Request) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const contentType = request.headers.get("content-type") ?? "";

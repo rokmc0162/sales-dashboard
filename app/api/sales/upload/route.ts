@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
 import { normalizeChannel } from '@/utils/platformConfig';
 import { buildTitleKrMaps, matchTitleKr } from '@/utils/titleMatcher';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic';
  * 채널명을 서버 사이드에서 강제 정규화하여 중복 방지
  */
 export async function POST(request: Request) {
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
+
   const body = await request.json();
   const { rows, source, isPreliminary, isLastBatch = true, skipPostProcess = false, isFirstBatch = true } = body;
 

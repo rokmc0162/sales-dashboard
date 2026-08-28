@@ -1,29 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const dynamic = 'force-dynamic';
 
-const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
-const TEMP_ACCESS_TOKEN = 'rvjp-temporary-mock-access-token';
-
-async function requireValidAccessToken(request: NextRequest): Promise<boolean> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return false;
-  const token = authHeader.slice('Bearer '.length).trim();
-  if (!token) return false;
-  if (token === TEMP_ACCESS_TOKEN) return true;
-  if (!AUTH0_DOMAIN) return false;
-
-  try {
-    const res = await fetch(`https://${AUTH0_DOMAIN}/userinfo`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: 'no-store',
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -45,9 +25,8 @@ function getContentMasterSource() {
  * @returns { total, active, byStatus, byGenre, byLabel, byFormat }
  */
 export async function GET(request: NextRequest) {
-  if (!(await requireValidAccessToken(request))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
 
   // 활성 행만 대상으로 분류 필드를 조회해 애플리케이션 단에서 집계한다.
   // (테이블 규모가 수백 건 수준이라 별도 RPC 없이 충분히 가볍다.)

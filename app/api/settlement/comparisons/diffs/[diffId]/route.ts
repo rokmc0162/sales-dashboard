@@ -23,7 +23,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ diffId: string }> },
 ) {
-  const unauthorized = requireSettlementApiAuth(request);
+  const unauthorized = await requireSettlementApiAuth(request);
   if (unauthorized) return unauthorized;
 
   const { diffId } = await params;

@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/manage/reset-sales
  * 매출 데이터 삭제 (전체 또는 기간별)
- * body: { password: string, startDate?: string, endDate?: string }
+ * body: { startDate?: string, endDate?: string }
+ * 인증: ADMIN 세션 + 동일 출처 (requireApiAuth)
  * startDate/endDate 없으면 전체 삭제
  */
 export async function POST(request: NextRequest) {
-  const { password, startDate, endDate } = await request.json();
+  const unauthorized = await requireApiAuth(request, { role: "ADMIN", mutating: true });
+  if (unauthorized) return unauthorized;
 
-  if (password !== 'CLINK') {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const { startDate, endDate } = await request.json();
 
   try {
     const isFullReset = !startDate && !endDate;

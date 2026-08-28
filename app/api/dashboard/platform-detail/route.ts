@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase-server';
+import { requireApiAuth } from "@/lib/api-auth";
 
 export const dynamic = 'force-dynamic';
 
@@ -8,6 +9,9 @@ export const dynamic = 'force-dynamic';
  * 특정 플랫폼 상세 정보 조회 (기간 필터 지원)
  */
 export async function GET(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
+
   const { searchParams } = new URL(request.url);
   const channel = searchParams.get('channel');
   const start = searchParams.get('start');
