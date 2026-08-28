@@ -46,3 +46,6 @@ supabase/.temp/
 # Local agent plans/permissions/config; never commit machine-specific agent files
 .hermes/
 .claude/settings.local.json
+
+# TypeScript incremental build cache
+*.tsbuildinfo
