@@ -1,76 +1,159 @@
 # RVJP 매출 대시보드 — 개발 로그
 
-> **프로젝트**: Riverse Japan 프리미엄 매출 분석 대시보드
+> **프로젝트**: Riverse Japan 매출 분석 대시보드 + 정산(settlement) 자동화
 > **배포**: https://rvjp-dashboard.vercel.app
 > **스택**: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS v4 + Recharts + framer-motion
-> **백엔드**: Supabase (PostgreSQL) — daily_sales ~74,934행
-> **인증**: Auth0 (Resource Owner Password Grant + BFF 패턴)
-> **마지막 업데이트**: 2026-04-05
+> **백엔드**: Supabase (PostgreSQL) — 대시보드 `daily_sales_v2`, 정산 `sales_records`
+> **인증**: Auth0 (ROPG + BFF) + HMAC 서명 세션 쿠키
+> **마지막 업데이트**: 2026-08-28
 
 ---
 
 ## 프로젝트 구조
 
+> 2026-07 이후 무게중심이 정산 파이프라인으로 이동했다.
+> 아래는 현재 구조이며, 초기 Vite 시절의 `src/pages/` · `App.tsx` · `i18n/`은 더 이상 없다.
+
 ```
+app/
+├── (protected)/                     인증 필요 페이지 10개
+│   ├── dashboard/  titles/  platforms/  reports/  data/
+│   ├── initial-sales/  title-compare/  titles-manage/
+│   ├── upload/                      속보치·리포트 업로드
+│   └── settlement/                  정산 업로드 + 정답지 비교 (탭)
+├── (public)/login/                  서버 래퍼 + LoginClient
+├── settlement-preview/[month]/      INPUT 워크북 미리보기 (독립 창)
+├── settlement-sheet/[id]/           정답지 전체화면 검수 (독립 창)
+└── api/                             라우트 59개
+    ├── auth/          login refresh logout profile forgot-password
+    ├── dashboard/     analysis/     sales/     manage/
+    ├── content-master/
+    ├── settlement/    upload uploads/prepare export-v2 preview-v2
+    │                  comparisons(+diffs, comments, artifacts) reset
+    └── health/                      유일한 공개 라우트 (Vercel cron)
+
 src/
-├── App.tsx                          # 라우터 (7개 페이지 + /dynamics 리다이렉트)
-├── main.tsx                         # 엔트리포인트
-├── types/index.ts                   # 전체 타입 정의 (DailySale, Currency 등)
-│
-├── pages/
-│   ├── ExecutiveSummary.tsx          # 경영 요약 — KPI 4개 + 차트 4개
-│   ├── TitleAnalysis.tsx            # 작품별 분석 — 분할 레이아웃 + 상세
-│   ├── PlatformAnalysis.tsx         # 플랫폼별 분석 (Dynamics 통합됨)
-│   ├── PeriodAnalysis.tsx           # 기간별 분석 — lazy load dailySales
-│   ├── SalesStructure.tsx           # 매출 구조 분석 — 집중도/안정성/히트맵
-│   ├── Trends.tsx                   # 트렌드 — 성장률/하락/요일패턴/신규
-│   └── RawData.tsx                  # 데이터 — 서버사이드 페이지네이션 50행
-│
-├── components/
-│   ├── DataUploader.tsx             # 통합 업로더 (리포트 Excel + 속보치 자동감지)
-│   ├── RawDataUploader.tsx          # [미사용] 구 속보치 업로더 (dead code)
-│   ├── PlatformIcon.tsx             # 플랫폼 로고 아이콘 (public/icons/)
-│   ├── AIPlatformMonitor.tsx        # 주요 이슈 브리핑
-│   ├── charts/KPICard.tsx           # KPI 카드 컴포넌트
-│   ├── layout/
-│   │   ├── Layout.tsx               # 사이드바 + 콘텐츠 영역
-│   │   ├── Sidebar.tsx              # 네비게이션 (7개 메뉴)
-│   │   └── DashboardGrid.tsx        # 반응형 그리드
-│   └── ui/                          # Shadcn 스타일 UI 컴포넌트
-│       ├── card.tsx, badge.tsx, button.tsx, table.tsx
-│       ├── tabs.tsx, select.tsx, input.tsx, separator.tsx
-│       ├── skeleton.tsx, scroll-area.tsx, tooltip.tsx
-│       ├── animated-number.tsx, chart-card.tsx, toggle-group.tsx
-│       └── ...
-│
-├── hooks/
-│   ├── useAppState.tsx              # 전역 상태 (language, currency, exchangeRate)
-│   └── useDataLoader.ts            # 데이터 로드 + 모듈레벨 캐시 + session storage
-│
+├── features/settlement/             정산 파이프라인 (82 files)
+│   ├── components/                  SettlementClient, SettlementCompareClient,
+│   │                                AnswerWorkbookReview, SettlementSpreadsheetReview,
+│   │                                InvestigationThread, InputPreview*
+│   ├── lib/parsers/                 registry.ts(자동 감지) + 20종 파서 + ocr-pdf, ai-pdf
+│   ├── lib/aggregation/             to-sales-records, strict-record-key
+│   ├── lib/export/                  input-v2-filler, carry-forward, workbook-preview
+│   ├── lib/comparison/              compare, workbook-review, investigation, presentation
+│   ├── lib/storage/                 archive-before-parse, direct-upload, heartbeat-stream
+│   └── data/                        aliases/*.json 18개, templates/*.xlsx
+├── components/                      대시보드 UI (dashboard, titles, platforms, data, shared)
 ├── lib/
-│   ├── supabase.ts                  # Supabase 클라이언트 + 쿼리 함수들
-│   ├── constants.ts                 # tooltipStyle, stagger 애니메이션 설정
-│   └── utils.ts                     # cn() 유틸리티
-│
-├── utils/
-│   ├── calculations.ts              # HHI, MoM, 성장률, 요일패턴, 집중도 등
-│   ├── platformParsers.ts           # 플랫폼 파일 자동 분류 + 파싱
-│   ├── platformConfig.ts            # 플랫폼 브랜드 컬러/이름 설정
-│   ├── excelConverter.ts            # Excel → DailySale[] 변환
-│   ├── dataConsolidator.ts          # mergeDailySales + rebuildDataset
-│   ├── reportGenerator.ts           # Weekly Report Excel 생성
-│   ├── formatters.ts                # formatSales, formatSalesShort
-│   └── insights.ts                  # AI 브리핑 텍스트 생성
-│
-└── i18n/
-    ├── index.ts                     # t() 함수
-    ├── ko.json                      # 한국어
-    └── ja.json                      # 일본어
+│   ├── session.ts                   HMAC 세션 서명/검증 (Web Crypto, Node+Edge 공용)
+│   ├── api-auth.ts                  requireApiAuth — 모든 API 라우트의 인증 게이트
+│   ├── supabase.ts / supabase-server.ts
+│   └── design-tokens.ts  animations.ts  utils.ts
+├── providers/AuthProvider.tsx       세션 복원, login/logout/refresh
+├── context/AppContext.tsx           언어·통화 등 전역 상태
+├── utils/                           platformConfig, upload/parsers, reportExporter
+└── types/
+
+scripts/                             테스트 45개 + 시드 + 정산 CLI
+supabase/migrations/                 001~021
+.github/workflows/ci.yml             lint + tsc + 테스트 전체
 ```
 
 ---
 
 ## 작업 히스토리 (최신순)
+
+### 2026-08-28: API 인증 전면 도입 + CI + 문서 정합화
+
+**문제**: API 라우트 60개 중 45개에 인증이 전혀 없었다. `src/lib/supabase-server.ts`가
+service role 키를 우선 사용하므로 이 라우트들은 RLS까지 우회했고, `middleware.ts`의 matcher는
+`/api`를 제외하므로 페이지 보호도 받지 못했다. 확인된 노출면:
+
+- `manage/reset-sales` — 하드코딩 리터럴 `'CLINK'` 하나로 전체 매출 삭제
+- `sales/upload`, `manage/sales`, `manage/titles` 등 — 인증 없이 매출 쓰기/수정/삭제
+- `upload-debug` — 인증 없이 임의 파일 Storage 업로드 (호출부 0개인 dead route)
+- `content-master` 2개 — 고정 `rvjp-temporary-mock-access-token` 무조건 허용
+- `auth/login` — 숫자 비밀번호면 이메일 무관 로그인 (2026-07-02 `cb106ab`에서 도입)
+- 정산 12개 — 고정 문자열 쿠키가 유일한 인증
+- `middleware.ts` — 쿠키 **존재 여부만** 검사
+
+**해결 — 서명 세션 쿠키 + 공통 게이트**
+- `src/lib/session.ts` 신규: `X-SESSION` HttpOnly 쿠키, HMAC-SHA256, TTL 60분.
+  **Web Crypto 단일 구현**이라 Node 라우트와 Edge 미들웨어가 같은 코드를 쓴다
+  (구현을 둘로 나누면 미들웨어는 통과시키고 API는 거부하는 불일치가 난다).
+  `kid` 기반 시크릿 로테이션(`SESSION_SECRET` / `SESSION_SECRET_PREVIOUS`),
+  `ver`로 전체 강제 재로그인, `SESSION_SECRET` 없으면 fail-closed.
+- `src/lib/api-auth.ts` 신규: `requireApiAuth(request, { role, mutating })`.
+  쓰기 요청은 ADMIN + `Origin` 동일 출처 검증(CSRF). `/api/health` 제외 전 라우트에 적용.
+- 클라이언트 `fetch` 호출부는 **한 곳도 수정하지 않았다** — 쿠키는 자동 전송된다.
+  Bearer 방식이었다면 호출부 13곳 + 라우트 59곳을 모두 고쳐야 했다.
+- `requireSettlementApiAuth`는 시그니처를 유지한 채 내부만 공통 게이트 호출로 교체(호출부 15곳은 `await`만 추가).
+- 임시 로그인 우회는 전부 `ALLOW_TEMP_LOGIN` 뒤로. 프로덕션 미설정 → 차단.
+- 로그인 페이지: 서버 래퍼가 `tempMode`를 주입해 폼을 분기. 게이트가 꺼지면 이메일+비밀번호 폼이 나온다
+  (이전에는 이메일 입력란 자체가 없어 우회를 끄면 아무도 로그인할 수 없었다).
+- `middleware.ts`: 존재 검사 → 서명 검증. 미인증 리다이렉트에 `?next=`로 목적지 보존.
+- `upload-debug` 라우트 삭제 (UI는 Supabase Storage SDK를 직접 사용).
+
+**롤아웃**: `/api/auth/refresh`가 세션을 재발급하므로, 기존 `X-REFRESH-TOKEN`만 가진 사용자는
+앱 진입 시 `AuthProvider`의 refresh 호출로 자동 마이그레이션된다.
+
+**남은 것**: 세션이 stateless라 로그아웃 후에도 유출된 쿠키는 TTL(60분)까지 유효하다.
+즉시 폐기가 필요해지면 서버측 denylist를 추가해야 한다.
+
+**CI 신규**: `.github/workflows/ci.yml` — push/PR마다 lint + `tsc --noEmit` + 테스트 7그룹.
+`scripts/test-*.ts`는 전부 오프라인이라 시크릿이 필요 없다.
+신규 테스트 `test-session-cookie.ts`(서명·변조·만료·로테이션·fail-closed·payload 위생),
+`test-api-auth.ts`(401/403·Origin·x-forwarded-host).
+
+**문서**: `README.md`가 Vite 템플릿 기본 문서였던 것을 전면 교체. `CLAUDE.md`의 페이지/API 개수
+정정(9→14, 36→59)과 정산 구조 추가. 이 DEVLOG의 구식 구조도 교체.
+
+**변경 파일**: `src/lib/session.ts`(신규), `src/lib/api-auth.ts`(신규), API 라우트 43개,
+`middleware.ts`, `app/(public)/login/{page.tsx,LoginClient.tsx}`, `src/features/settlement/lib/api-auth.ts`,
+`scripts/test-{session-cookie,api-auth}.ts`(신규), `.github/workflows/ci.yml`(신규),
+`README.md`, `CLAUDE.md`, `DEVLOG.md`, `.env.example`
+
+---
+
+### 2026-07-01 ~ 2026-08-01: 정산(settlement) 파이프라인
+
+대시보드에 정산 자동화가 통합된 4개월. 커밋 약 60개.
+
+**파이프라인** (`d359f9d` → `fa873b0`)
+```
+원본 파일 → 파싱 전 아카이브(sha256) → 플랫폼 자동 감지 → 20종 파서
+  → raw_records(jsonb) → 정규화·중복억제 → sales_records → INPUT 워크북(xlsx)
+  → 정답지 대조 → 차이별 조사 스레드
+```
+
+**플랫폼 파서 20종**: cmoa, piccoma(+ads/gaiakuhan), booklive, renta, mechacomic, comico,
+dmm, line-ebj, line-ad, unext, mediado, mbj, mangabang, kadokawa, ichijinsha, sb-creative,
+shueisha, beaglee, lezhin-beltoon. 타이틀 정규화는 `data/aliases/*.json` 18개 + `pg_trgm`.
+
+**집영사 OCR** (`38482ee`, `1bd4a7b`, `3245489`): 명세서가 이미지 PDF라 서버에서
+`tesseract.js` + `@napi-rs/canvas`로 OCR. `maxDuration=1800`, 페이지 병렬화, 금액 fast-path.
+응답이 수 분간 비어 연결이 끊기므로 heartbeat 스트리밍으로 유지(`3c9d7c6`).
+`next.config.ts`의 `outputFileTracingIncludes`로 WASM·언어데이터·네이티브 바인딩을 강제 번들하고,
+`npm run deploy`가 번들에 실제로 들어갔는지 검증하는 게이트를 통과해야 배포된다.
+
+**정답지 대조** (`038bb8f`, `111ed01`, `eba27ab`): 사람이 만든 워크북과 시스템 생성 워크북을
+비교. `(channel, type, title)` identity multiset 매칭 후, 그룹 내에서 **최소비용 할당**
+(작은 그룹은 비트마스크 DP, 큰 그룹은 헝가리안)으로 행을 짝짓는다 — 파일 내 행 순서와 무관하게
+결정적. 14개 비즈니스 필드만 비교하고 수식/마스터 유래 컬럼은 제외.
+어느 쪽이 틀렸는지 미리 단정하지 않는다(`candidate_correct` / `golden_correct` 둘 다 존재).
+
+**조사 스레드** (`bd72a54`, migration 020): diff마다 `investigation_status` 7단계 +
+`root_cause_stage` 10종(source/upload/parser/transform/identity/aggregation/carry/formula/
+human_workbook/unknown). 확정 상태로 가려면 원인 요약이 있어야 한다는 DB 제약까지 걸려 있고,
+코멘트는 append-only(UPDATE/DELETE 정책을 만들지 않음). CLI도 있다: `npm run settlement:investigations`.
+
+**검수 UI** (`32be280`, `fa873b0`): 정답지 워크북 위에서 diff를 보는 `AnswerWorkbookReview`,
+전체화면 스프레드시트 `SettlementSpreadsheetReview`(`/settlement-sheet/[id]`).
+
+**마이그레이션**: 013(정산 초기 스키마) · 014 · 015(Storage 버킷) · 016(batch) ·
+017~018(content master) · 019(비교 실행/차이) · 020(조사) · 021(차이 순번)
+
+---
 
 ### 2026-04-05: Auth0 인증 + ADMIN 접근 제어 + 디자인 시스템 마이그레이션
 
@@ -263,38 +346,44 @@ src/
 
 ---
 
-## Supabase 설정
+## Supabase
 
-- **URL**: 환경변수 `VITE_SUPABASE_URL`
-- **Anon Key**: 환경변수 `VITE_SUPABASE_ANON_KEY`
-- **테이블**: `datasets`, `daily_sales`, `title_summary`, `platform_summary`, `monthly_summary`
-- **RLS**: anon key로 select 허용
-
-로컬에서 `.env` 파일 필요:
-```
-VITE_SUPABASE_URL=https://xxx.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJ...
-```
-
-Supabase 미설정 시 `public/data/` 정적 JSON 파일로 폴백.
+- 환경변수: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+  `SUPABASE_SERVICE_ROLE_KEY`(서버 전용), `SUPABASE_DATABASE_URL`(정산 비교 API의 Postgres pooler)
+- 대시보드 테이블: `daily_sales_v2`, `titles`, `platforms`, `genres`, `initial_sales`,
+  `title_platform_availability`, `audit_logs`, `upload_logs` + 집계 RPC
+- 정산 테이블: `raw_uploads`, `raw_records`, `sales_records`, `clients`, `channels`,
+  `rs_rules`, `settlement_comparison_runs`, `settlement_comparison_diffs`,
+  `settlement_comparison_comments`, `content_master`
+- RLS: authenticated 전용. **단, API 라우트는 service role 키를 쓰므로 RLS를 우회한다** —
+  인가는 `requireApiAuth`가 담당한다.
 
 ---
 
 ## 빌드 & 배포
 
 ```bash
-npm install          # 의존성 설치
-npm run dev          # 개발 서버 (localhost:5173)
-npm run build        # 프로덕션 빌드 (tsc + vite)
+npm install
+npm run dev          # 개발 서버
+npm run build        # 프로덕션 빌드
+npm run lint
+npx tsc --noEmit
+npm run deploy       # canvas 바인딩 확보 → 빌드 → 번들 검증 → prebuilt 배포
 ```
 
-- `main` 브랜치 push → Vercel 자동 배포
-- 빌드 경고: `index.js` chunk 1MB+ (Recharts/framer-motion 무거움) — 기능에 영향 없음
+- `main` push → Vercel 자동 배포 (hnd1 도쿄 리전)
+- 정산 업로드(OCR) 관련 변경은 `npm run deploy`로 — 번들 검증 게이트를 거친다
+- `/api/health`를 5분마다 호출하는 cron으로 콜드 스타트를 방지한다 (`vercel.json`)
 
 ---
 
 ## 알려진 사항
 
-1. `RawDataUploader.tsx` — 통합 업로더 도입 후 미사용 (dead code). 삭제 가능.
-2. `i18n`의 `dynamics.*`, `rawUpload.*` 키 — 더 이상 참조 없음. 정리 가능.
-3. `icon/` 폴더 — 미사용 플랫폼 원본 이미지. gitignore 대상.
+1. **스키마 이름 충돌** — 마이그레이션 001과 013이 `platforms` / `titles`를 서로 다른 id 타입
+   (SERIAL vs uuid)으로 중복 정의한다. `create table if not exists`라 먼저 실행된 001만 살아있다.
+   현재는 잠복 상태(정산 코드가 `titles`에서 `id, title_kr`만 읽고 `platform_id`를 쓰지 않음)이나,
+   `raw_uploads.platform_id`에 값을 넣으려는 순간 타입 불일치로 깨진다.
+2. **세션 즉시 폐기 불가** — stateless 서명 쿠키라 로그아웃해도 유출본은 TTL(60분)까지 유효하다.
+3. **테스트가 타입체크에서 빠져 있다** — `tsconfig.json`의 `exclude`에 `scripts`가 있다.
+4. **Storage RLS 미점검** — `app/(protected)/upload/page.tsx`가 브라우저에서 anon 키로
+   `upload-debug` 버킷에 직접 업로드한다. 버킷 정책이 anon 쓰기를 허용하는지 확인이 필요하다.
